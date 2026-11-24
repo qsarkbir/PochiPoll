@@ -66,6 +66,14 @@ try {
   await card(a).getByRole('button', { name: '発表で拡大', exact: true }).click();
   await present.locator('.stage-comment-focus').waitFor();
   assert.equal(await present.locator('.stage-comment').count(), 1);
+  const release = card(a).getByRole('button', { name: '拡大を解除', exact: true });
+  assert.equal(await release.getAttribute('aria-pressed'), 'true');
+  await release.click();
+  await present.locator('.stage-comments').waitFor();
+  assert.equal(await present.locator('.stage-comment').count(), 2);
+  assert.equal(await card(a).getByRole('button', { name: '発表で拡大', exact: true }).getAttribute('aria-pressed'), 'false');
+  await card(a).getByRole('button', { name: '発表で拡大', exact: true }).click();
+  await present.locator('.stage-comment-focus').waitFor();
   await card(a).getByRole('button', { name: '非公開', exact: true }).click();
   await present.waitForFunction(id => !document.querySelector(`[data-comment-id="${id}"]`), a);
   await admin.getByRole('button', { name: '非公開 (1)', exact: true }).click();

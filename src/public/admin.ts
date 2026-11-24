@@ -289,9 +289,17 @@ function renderComments() {
     if (comment.visibility === 'published') {
       const context = { sessionId: snapshot.sessionId, questionId: snapshot.questionId,
         discussionRevision: snapshot.discussionRevision, commentId: comment.commentId };
+      const focused = state?.presentation.questionId === topic.questionId
+        && topic.presentation.focusedCommentId === comment.commentId;
+      // サーバーの現在値から表示を決め、解除は明示的な一覧操作にする。再送でも二重反転しない。
+      const focusButton = button(focused ? '拡大を解除' : '発表で拡大', () => void discussionControl(focused
+        ? { sessionId: snapshot.sessionId, questionId: snapshot.questionId,
+          discussionRevision: snapshot.discussionRevision, action: 'list' }
+        : { ...context, action: 'focus' }), 'compact');
+      focusButton.setAttribute('aria-pressed', String(focused));
       actions.append(button(comment.presented ? '紹介済みを解除' : '紹介済みにする',
         () => void discussionControl({ ...context, action: 'set-presented', presented: !comment.presented }), 'compact'),
-      button('発表で拡大', () => void discussionControl({ ...context, action: 'focus' }), 'compact'));
+      focusButton);
     }
     if (comment.visibility !== 'published') actions.append(button(comment.visibility === 'pending' ? '承認して公開' : '再公開',
       () => void update('publish'), 'compact'));
