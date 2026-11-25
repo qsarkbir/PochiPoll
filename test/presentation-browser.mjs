@@ -28,8 +28,9 @@ try {
   const admin = await browser.newPage();
   const present = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const participant = await browser.newPage();
+  const reader = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const errors = [];
-  for (const page of [admin, present, participant]) page.on('pageerror', error => errors.push(error.message));
+  for (const page of [admin, present, participant, reader]) page.on('pageerror', error => errors.push(error.message));
   await present.addInitScript(() => {
     window.animationDurations = [];
     const animate = Element.prototype.animate;
@@ -41,7 +42,7 @@ try {
   await admin.goto(origin + '/admin#' + adminKey);
   await present.goto(origin + '/present#' + state.presentationToken);
   await participant.goto(origin + '/#' + state.participantCode);
-  for (const body of ['研究データの整理方法を知りたいです。', '<b>共同作業の進め方</b>を話したいです。']) {
+  for (const body of ['研究データの整理方法を知りたいです。', '<b>共同作業の進め方</b>を話したいです。'.repeat(10)]) {
     await participant.locator('#discussion-body').fill(body);
     await participant.getByRole('button', { name: '投稿する', exact: true }).click();
     await participant.waitForFunction(() => document.getElementById('discussion-body')?.value === '');
@@ -53,12 +54,20 @@ try {
   await present.waitForFunction(() => document.querySelectorAll('.stage-comment').length === 2);
   assert.equal(await present.locator('.stage-comment b').count(), 0);
   const comments = (await api('/api/admin/comments?questionId=browser-topic')).comments;
-  const binding = { sessionId: state.sessionId, questionId: 'browser-topic', discussionRevision: state.discussions[0].discussionRevision };
   const card = id => admin.locator('.discussion-comment').filter({ hasText: comments.find(c => c.commentId === id).body });
   const a = comments[0].commentId;
   const b = comments[1].commentId;
+  await admin.getByText('設定・管理', { exact: true }).click();
   await admin.getByLabel('発表の並び順を固定', { exact: true }).check();
-  await api('/api/public/likes', { ...binding, commentId: b, voterToken: randomBytes(32).toString('base64url'), liked: true }, state.participantCode);
+  await reader.goto(origin + '/#' + state.participantCode);
+  const reaction = reader.locator('.discussion-comment').filter({ hasText: comments[1].body });
+  await reaction.getByRole('button', { name: 'いいね', exact: true }).press('Enter');
+  const liked = reaction.getByRole('button', { name: 'いいねを取り消す', exact: true });
+  await liked.waitFor();
+  assert.equal(await liked.getAttribute('aria-pressed'), 'true');
+  assert.equal(await liked.evaluate(button => document.activeElement === button), true);
+  await reader.locator('#discussion-body').fill('入力中の確認用コメント');
+  await reader.locator('#discussion-body').focus();
   await present.waitForFunction(() => document.querySelector('.stage-comments')?.textContent.includes('1 いいね'));
   assert.deepEqual(await present.locator('.stage-comment').evaluateAll(nodes => nodes.map(n => n.dataset.commentId)), [a, b]);
   await admin.getByLabel('発表の並び順を固定', { exact: true }).uncheck();
@@ -76,6 +85,9 @@ try {
   await present.locator('.stage-comment-focus').waitFor();
   await card(a).getByRole('button', { name: '非公開', exact: true }).click();
   await present.waitForFunction(id => !document.querySelector(`[data-comment-id="${id}"]`), a);
+  await reader.locator('.discussion-comment').filter({ hasText: comments[0].body }).waitFor({ state: 'detached' });
+  assert.equal(await reader.locator('#discussion-body').inputValue(), '入力中の確認用コメント');
+  assert.equal(await reader.locator('#discussion-body').evaluate(field => document.activeElement === field), true);
   await admin.getByRole('button', { name: '非公開 (1)', exact: true }).click();
   await admin.getByRole('button', { name: '再公開', exact: true }).click();
   await admin.getByRole('button', { name: '公開中 (2)', exact: true }).click();
@@ -105,10 +117,11 @@ try {
   assert.deepEqual(await present.locator('.stage-comment').evaluateAll(nodes => nodes.map(n => n.dataset.commentId)), [b]);
   await card(b).getByRole('button', { name: '発表で拡大', exact: true }).click();
   await present.locator('.stage-comment-focus').waitFor();
+  assert.equal(await present.locator('.stage-comment-focus .discussion-body').textContent(), comments[1].body);
   if (process.env.PRESENTATION_SCREENSHOT) await present.screenshot({ path: process.env.PRESENTATION_SCREENSHOT, fullPage: true });
   admin.once('dialog', dialog => dialog.accept());
   const downloadEvent = admin.waitForEvent('download');
-  await admin.getByRole('button', { name: 'コメント JSON', exact: true }).click();
+  await admin.getByRole('button', { name: '公開コメント JSON', exact: true }).click();
   const download = await downloadEvent;
   const chunks = [];
   for await (const chunk of await download.createReadStream()) chunks.push(chunk);
@@ -123,7 +136,7 @@ try {
   await present.getByRole('heading', { name: '選択式の確認', exact: true }).waitFor();
   assert.equal(await present.locator('.stage-options li').count(), 2);
   assert.deepEqual(errors, []);
-  console.log('PASS: 参加投稿→審査→一覧／注目→紹介済み／解除→順番固定→非公開／削除→JSON、250ms演出・動きの低減・通信復帰・選択式への進行');
+  console.log('PASS: 参加投稿→審査・いいね→一覧／注目→紹介済み／解除→順番固定→非公開／削除→JSON、250ms演出・動きの低減・通信復帰・選択式への進行');
 } finally {
   await browser?.close();
   server.closeAllConnections();

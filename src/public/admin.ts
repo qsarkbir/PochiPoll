@@ -97,9 +97,10 @@ function updateBackupControls() {
 
 function render() {
   const state = currentState();
-  const openCount = items().filter(question => question.isOpen).length;
+  const questions = items();
+  const openCount = questions.filter(question => question.isOpen).length;
   const metrics: [string, number][] = [
-    ['質問・お題数', items().length],
+    ['質問・お題', questions.length],
     ['受付中', openCount],
     ['結果公開済み', state.questions.filter(question => question.resultsPublished).length]
   ];
@@ -109,7 +110,7 @@ function render() {
 
   const active = document.activeElement;
   const focused = active instanceof HTMLElement ? active.dataset.focus : undefined;
-  $('questions').replaceChildren(...items().map((question, index) => {
+  $('questions').replaceChildren(...questions.map((question, index) => {
     const row = button('', () => {
       selectedId = question.questionId;
       commentSnapshot = undefined;
@@ -121,69 +122,118 @@ function render() {
     row.dataset.focus = 'question-' + question.questionId;
     row.append(el('span', { cls: 'question-index', text: String(index + 1).padStart(2, '0') }),
       el('span', { cls: 'question-row-content' }, el('strong', { text: question.text }),
-        el('small', { text: question.type === 'discussion' ? question.commentCount + ' 件のコメント'
-          : question.results.respondentCount + ' 人が回答' })),
-      statusPill(question.isOpen, question.everOpened));
+        el('small', { text: formatLabel(question) + ' · ' + (question.type === 'discussion'
+          ? question.commentCount + '件のコメント' : question.results.respondentCount + '人が回答') }),
+        el('span', { cls: 'pills' }, statusPill(question.isOpen, question.everOpened),
+          ...(selectedId === question.questionId
+            ? [el('span', { cls: 'pill pill-purple', text: '選択中', attrs: { 'aria-hidden': 'true' } })] : []),
+          ...(state.presentation.questionId === question.questionId
+            ? [el('span', { cls: 'pill pill-stage', text: '発表中' })] : []))));
     return row;
   }));
-  if (!items().length) {
+  if (!questions.length) {
     $('questions').append(el('p', { cls: 'list-empty muted', text: '質問はまだありません。' }));
     $('detail').replaceChildren(emptyState('最初の質問を作成', '質問を追加するか、保存した質問集を読み込んでください。'));
   } else {
-    const selected = items().find(question => question.questionId === selectedId);
-    if (selected) renderDetail(selected, openCount);
+    const selected = questions.find(question => question.questionId === selectedId);
+    if (selected) renderDetail(selected, openCount, focused);
   }
-  if (focused) {
-    document.querySelectorAll('[data-focus]').forEach(element => {
-      if (element instanceof HTMLButtonElement && element.dataset.focus === focused && !element.disabled) {
-        element.focus({ preventScroll: true });
-      }
-    });
+  if (focused && document.activeElement === document.body) {
+    const targets = document.querySelectorAll<HTMLElement>('[data-focus]:not(:disabled)');
+    let target = [...targets].find(element => element.dataset.focus === focused);
+    if (!target && focused === 'next-question') {
+      target = [...targets].find(element => element.dataset.focus === 'question-' + state.presentation.questionId);
+    }
+    target?.focus({ preventScroll: true });
   }
 }
 
-function action(label: string, handler: (event: MouseEvent) => void, cls?: string, disabled?: boolean) {
+function action(label: string, handler: (event: MouseEvent) => void, cls?: string, disabled?: boolean, focusKey = label) {
   const element = button(label, handler, cls, disabled);
-  element.dataset.focus = label;
+  element.dataset.focus = focusKey;
   return element;
 }
 
-function renderDetail(question: AdminItem, openCount: number) {
-  if (question.type === 'discussion') return renderDiscussion(question);
+function formatLabel(question: AdminItem) {
+  return question.type === 'discussion' ? 'コメント' : question.type === 'single' ? '単一選択' : '複数選択';
+}
+
+function detailHeading(question: AdminItem, inPresentation: boolean) {
+  const metadata = question.type === 'discussion'
+    ? (question.settings.moderationMode === 'manual' ? '事前審査' : '即時公開')
+      + ' · 投稿上限 ' + (question.settings.maxPostsPerToken === 'unlimited'
+        ? '制限なし' : question.settings.maxPostsPerToken + '件')
+    : styleLabels[question.style];
+  const status = el('div', { cls: 'pills', attrs: { 'aria-label': '現在の状態' } },
+    statusPill(question.isOpen, question.everOpened));
+  if (question.type !== 'discussion') status.append(el('span', {
+    cls: 'pill ' + (question.resultsPublished ? 'pill-purple' : 'pill-muted'),
+    text: question.resultsPublished ? '結果公開済み' : '結果非公開'
+  }));
+  status.append(el('span', { cls: 'pill ' + (inPresentation ? 'pill-stage' : 'pill-muted'),
+    text: inPresentation ? '発表中' : '発表対象外' }));
+  return el('header', { cls: 'detail-heading' },
+    el('div', { cls: 'detail-header-row' }, status, action('編集', () => showEditor(question), 'compact')),
+    el('h2', { text: question.text }),
+    el('p', { cls: 'detail-meta', text: formatLabel(question) + ' · ' + metadata }));
+}
+
+function advanceControls(id: string, index: number, inPresentation: boolean, openCount: number) {
+  const { sessionId, deckRevision } = currentState();
+  const next = items()[index + 1];
+  const advance = action('次へ', () => control({ action: 'advance', questionId: id, sessionId, deckRevision }),
+    'accent-button', !inPresentation || !next, 'next-question');
+  advance.setAttribute('aria-describedby', 'advance-help');
+  const hint = !inPresentation ? '発表中の質問から次へ進めます。' : next
+    ? 'この受付を終了し、次の質問の受付を開始して発表します。'
+    : 'これが最後の質問です。';
+  return el('div', { cls: 'advance-controls' }, advance,
+    el('div', {}, el('p', { text: hint, attrs: { id: 'advance-help' } }),
+      ...(inPresentation && next ? [el('p', { cls: 'advance-target', text: next.text })] : []),
+      ...(openCount > 1 ? [el('p', {
+        cls: 'multi-open-note', text: openCount + '問を受付中です。ほかの質問の受付状態は維持されます。'
+      })] : [])));
+}
+
+function management(question: AdminItem, index: number, ...controls: HTMLElement[]) {
+  const id = question.questionId;
+  const previous = document.querySelector<HTMLDetailsElement>('#detail .question-management');
+  const disclosure = el('details', { cls: 'question-management' },
+    el('summary', { text: '設定・管理', attrs: { 'data-focus': 'question-management' } }),
+    ...controls,
+    el('div', { cls: 'actions question-tools' },
+      action('↑ 上へ', () => moveQuestion(index, -1), 'compact', index === 0),
+      action('↓ 下へ', () => moveQuestion(index, 1), 'compact', index === items().length - 1)));
+  disclosure.dataset.question = id;
+  // 定期更新でも、同じ質問の管理欄とキーボードの位置を保つ。
+  disclosure.open = previous?.dataset.question === id && previous.open;
+  return disclosure;
+}
+
+function renderDetail(question: AdminItem, openCount: number, focused?: string) {
+  if (question.type === 'discussion') return renderDiscussion(question, openCount, focused);
   const state = currentState();
   const id = question.questionId;
   const inPresentation = state.presentation.questionId === id;
   const index = items().findIndex(item => item.questionId === id);
-  const next = items()[index + 1];
-  const heading = el('div', { cls: 'detail-heading' },
-    el('div', { cls: 'pills' }, statusPill(question.isOpen, question.everOpened),
-      el('span', { cls: 'pill ' + (question.resultsPublished ? 'pill-purple' : 'pill-muted'),
-        text: question.resultsPublished ? '結果公開済み' : '結果非公開' }),
-      ...(inPresentation ? [el('span', { cls: 'pill pill-purple', text: '発表に選択済み' })] : [])),
-    el('h2', { text: question.text }), el('p', { cls: 'muted',
-      text: (question.type === 'single' ? '単一選択' : '複数選択') + ' · ' + styleLabels[question.style] }));
-  const advance = action('次へ',
-    () => control({ action: 'advance', questionId: id, sessionId: state.sessionId, deckRevision: state.deckRevision }),
-    'compact', !inPresentation || !next);
-  advance.title = !next ? 'これが最後の質問です。'
-    : inPresentation ? '次の質問の受付を開始して発表します。' : '発表対象の質問で使えます。';
-  const controls = el('div', { cls: 'actions detail-actions' },
-    action(question.isOpen ? '受付を終了' : '受付を開始して発表',
-      () => control({ action: question.isOpen ? 'close' : 'open', questionId: id }), question.isOpen ? '' : 'primary'),
-    action(question.resultsPublished ? '結果を非公開' : '結果を公開',
-      () => control({ action: question.resultsPublished ? 'unpublish' : 'publish', questionId: id }),
-      '', !question.everOpened),
-    action('発表する質問に選択', () => control({ action: 'select', questionId: id }), '', inPresentation),
-    advance);
+  const controls = el('section', { cls: 'progress-controls', attrs: { 'aria-label': '進行操作' } },
+    el('h3', { text: '進行操作' }),
+    el('div', { cls: 'actions' },
+      action(question.isOpen ? '受付を終了' : '受付を開始して発表',
+        () => control({ action: question.isOpen ? 'close' : 'open', questionId: id }), question.isOpen ? '' : 'primary', false, 'toggle-reception'),
+      action('発表する質問に選択', () => control({ action: 'select', questionId: id }), '', inPresentation),
+      action(question.resultsPublished ? '結果を非公開' : '結果を公開',
+        () => control({ action: question.resultsPublished ? 'unpublish' : 'publish', questionId: id }),
+        '', !question.everOpened, 'toggle-results')));
   if (inPresentation) {
-    controls.append(el('div', { cls: 'segmented', attrs: { role: 'group', 'aria-label': '発表モード' } },
-      modeButton('質問モード', 'question'), modeButton('可視化モード', 'results', !question.everOpened)));
+    controls.append(el('div', { cls: 'presentation-controls' }, el('span', { text: '発表モード' }),
+      el('div', { cls: 'segmented', attrs: { role: 'group', 'aria-label': '発表モード' } },
+        modeButton('質問モード', 'question'), modeButton('可視化モード', 'results', !question.everOpened))));
   }
-  const tally = el('div', { cls: 'tally' }, el('h3', { text: '回答状況' }), chart(question.results, question.style, question.type));
-  const tools = el('div', { cls: 'actions question-tools' },
-    action('編集', () => showEditor(question), 'compact'),
-    action('↑ 上へ', () => moveQuestion(index, -1), 'compact', index === 0),
-    action('↓ 下へ', () => moveQuestion(index, 1), 'compact', index === items().length - 1),
+  controls.append(advanceControls(id, index, inPresentation, openCount));
+  const tally = el('section', { cls: 'tally' }, el('h3', { text: '選択肢と回答状況' }),
+    chart(question.results, question.style, question.type));
+  const tools = management(question, index, el('div', { cls: 'actions question-tools' },
     action('票をリセット', () => {
       if (window.confirm('この質問の票をすべてリセットしますか？')) {
         control({ action: 'reset-votes', questionId: id, confirm: true });
@@ -193,31 +243,26 @@ function renderDetail(question: AdminItem, openCount: number) {
       if (window.confirm('この質問を削除しますか？ この質問の票も消去されます。')) {
         saveDeck(items().filter(item => item.questionId !== id).map(draft), { confirmReset: true });
       }
-    }, 'danger-link compact'));
-  const warnings = openCount > 1 ? [el('p', { cls: 'notice',
-    text: openCount + '問を受付中です。「次へ」で移動しても、ほかの質問の受付状態はそのままです。' })] : [];
-  $('detail').replaceChildren(heading, controls, ...warnings, tally, tools);
+    }, 'danger-link compact')));
+  $('detail').replaceChildren(detailHeading(question, inPresentation), controls, tally, tools);
 }
 
-function renderDiscussion(topic: AdminDiscussion) {
+function renderDiscussion(topic: AdminDiscussion, openCount: number, focused?: string) {
   const state = currentState();
   const index = items().findIndex(item => item.questionId === topic.questionId);
   const context = { sessionId: state.sessionId, questionId: topic.questionId, discussionRevision: topic.discussionRevision };
   const inPresentation = state.presentation.questionId === topic.questionId;
-  const heading = el('div', { cls: 'detail-heading' }, statusPill(topic.isOpen, topic.everOpened),
-    el('h2', { text: topic.text }), el('p', { cls: 'muted', text:
-      'コメント · ' + (topic.settings.moderationMode === 'manual' ? '事前審査' : '即時公開') +
-      ' · 投稿上限 ' + (topic.settings.maxPostsPerToken === 'unlimited' ? '制限なし' : topic.settings.maxPostsPerToken + '件') }));
-  const controls = el('div', { cls: 'actions detail-actions' },
-    action(topic.isOpen ? '受付を緊急停止' : '受付を開始',
-      () => control({ action: topic.isOpen ? 'close' : 'open', questionId: topic.questionId }),
-      topic.isOpen ? 'danger-link' : 'primary'),
-    action('コメント一覧を発表', () => discussionControl({ ...context, action: 'list' }), '', !topic.everOpened),
-    action('次へ', () => control({ action: 'advance', questionId: topic.questionId,
-      sessionId: state.sessionId, deckRevision: state.deckRevision }), 'compact', !inPresentation || index === items().length - 1));
-  const hidePresented = el('input', { attrs: { type: 'checkbox' } });
+  const controls = el('section', { cls: 'progress-controls', attrs: { 'aria-label': '進行操作' } },
+    el('h3', { text: '進行操作' }),
+    el('div', { cls: 'actions' },
+      action(topic.isOpen ? '受付を緊急停止' : '受付を開始',
+        () => control({ action: topic.isOpen ? 'close' : 'open', questionId: topic.questionId }),
+        topic.isOpen ? 'danger-link emergency' : 'primary', false, 'toggle-reception'),
+      action('コメント一覧を発表', () => discussionControl({ ...context, action: 'list' }), '', !topic.everOpened)),
+    advanceControls(topic.questionId, index, inPresentation, openCount));
+  const hidePresented = el('input', { attrs: { type: 'checkbox', 'data-focus': 'hide-presented' } });
   hidePresented.checked = topic.presentation.hidePresented;
-  const freezeOrder = el('input', { attrs: { type: 'checkbox' } });
+  const freezeOrder = el('input', { attrs: { type: 'checkbox', 'data-focus': 'freeze-order' } });
   freezeOrder.checked = topic.presentation.freezeOrder;
   hidePresented.disabled = freezeOrder.disabled = !topic.everOpened;
   const configure = async () => {
@@ -230,32 +275,40 @@ function renderDiscussion(topic: AdminDiscussion) {
   const displaySettings = el('div', { cls: 'actions discussion-display-settings' },
     el('label', {}, hidePresented, document.createTextNode('紹介済みを一覧から除く')),
     el('label', {}, freezeOrder, document.createTextNode('発表の並び順を固定')));
-  const tools = el('div', { cls: 'actions question-tools' },
-    action('編集', () => showEditor(topic), 'compact'),
-    action('↑ 上へ', () => moveQuestion(index, -1), 'compact', index === 0),
-    action('↓ 下へ', () => moveQuestion(index, 1), 'compact', index === items().length - 1),
-    action('お題を削除', () => {
-      if (window.confirm('このお題とコメント・いいねをすべて削除しますか？ 復元できません。')) {
-        void saveDeck(items().filter(item => item.questionId !== topic.questionId).map(draft), { confirmReset: true });
-      }
-    }, 'danger-link compact'));
-  $('detail').replaceChildren(heading, controls, displaySettings,
-    el('p', { cls: 'muted', text: '受付停止後も閲覧・審査できます。通常の非表示には、再公開できる「非公開」を使ってください。紹介済みでも参加者は閲覧・いいねできます。画面共有は発表画面だけにしてください。' }),
-    el('div', { attrs: { id: 'admin-comments' } }), tools);
-  renderComments();
+  const tools = management(topic, index, displaySettings,
+    el('div', { cls: 'actions question-tools' },
+      action('お題を削除', () => {
+        if (window.confirm('このお題とコメント・いいねをすべて削除しますか？ 復元できません。')) {
+          void saveDeck(items().filter(item => item.questionId !== topic.questionId).map(draft), { confirmReset: true });
+        }
+      }, 'danger-link compact')));
+  const comments = el('section', { cls: 'moderation' },
+    el('h3', { text: 'コメントの審査' }),
+    el('p', { text: '受付停止後も審査できます。紹介済みのコメントは参加者の公開一覧に残ります。' }),
+    el('div', { attrs: { id: 'admin-comments' } }));
+  $('detail').replaceChildren(detailHeading(topic, inPresentation), controls, comments, tools);
+  renderComments(focused);
 }
 
-function renderComments() {
+function renderComments(previousFocus?: string) {
   const container = document.getElementById('admin-comments');
   if (!container || !state) return;
+  const active = document.activeElement;
+  const focusKey = active instanceof HTMLElement && container.contains(active) ? active.dataset.focus : previousFocus;
+  const focused = focusKey?.startsWith('comment-') || focusKey?.startsWith('moderation-') ? focusKey : undefined;
   const topic = state.discussions?.find(item => item.questionId === selectedId);
   const snapshot = commentSnapshot;
   if (!topic || !snapshot || snapshot.sessionId !== state.sessionId || snapshot.questionId !== selectedId ||
       snapshot.discussionRevision !== topic.discussionRevision) {
-    container.replaceChildren(el('p', { text: 'コメントを取得しています…' }));
+    const loading = el('p', { text: 'コメントを取得しています…', attrs: { tabindex: '-1', role: 'status' } });
+    container.replaceChildren(loading);
+    if (focused) {
+      loading.dataset.focus = focused;
+      loading.focus({ preventScroll: true });
+    }
     return;
   }
-  const tabs = el('div', { cls: 'actions', attrs: { role: 'group', 'aria-label': 'コメントの公開状態' } });
+  const tabs = el('div', { cls: 'actions moderation-filters', attrs: { role: 'group', 'aria-label': 'コメントの公開状態' } });
   const labels = { pending: '承認待ち', published: '公開中', hidden: '非公開' };
   for (const visibility of ['pending', 'published', 'hidden'] as const) {
     const count = snapshot.comments.filter(item => item.visibility === visibility).length;
@@ -263,6 +316,7 @@ function renderComments() {
       commentFilter = visibility;
       renderComments();
     }, 'compact');
+    tab.dataset.focus = 'moderation-' + visibility;
     tab.setAttribute('aria-pressed', String(commentFilter === visibility));
     tabs.append(tab);
   }
@@ -285,7 +339,7 @@ function renderComments() {
         }
       });
     };
-    const actions = el('div', { cls: 'actions' });
+    const actions = el('div', { cls: 'actions moderation-actions' });
     if (comment.visibility === 'published') {
       const context = { sessionId: snapshot.sessionId, questionId: snapshot.questionId,
         discussionRevision: snapshot.discussionRevision, commentId: comment.commentId };
@@ -297,20 +351,34 @@ function renderComments() {
           discussionRevision: snapshot.discussionRevision, action: 'list' }
         : { ...context, action: 'focus' }), 'compact');
       focusButton.setAttribute('aria-pressed', String(focused));
-      actions.append(button(comment.presented ? '紹介済みを解除' : '紹介済みにする',
-        () => void discussionControl({ ...context, action: 'set-presented', presented: !comment.presented }), 'compact'),
-      focusButton);
+      const presentedButton = button(comment.presented ? '紹介済みを解除' : '紹介済みにする',
+        () => void discussionControl({ ...context, action: 'set-presented', presented: !comment.presented }), 'quiet compact');
+      presentedButton.setAttribute('aria-pressed', String(comment.presented));
+      actions.append(focusButton, presentedButton);
     }
     if (comment.visibility !== 'published') actions.append(button(comment.visibility === 'pending' ? '承認して公開' : '再公開',
-      () => void update('publish'), 'compact'));
-    if (comment.visibility !== 'hidden') actions.append(button('非公開', () => void update('hide'), 'compact'));
+      () => void update('publish'), 'accent-button compact'));
+    if (comment.visibility !== 'hidden') actions.append(button('非公開', () => void update('hide'), 'quiet compact'));
     actions.append(button('削除', () => void update('delete'), 'danger-link compact'));
+    // ラベルが変わる切り替え操作も、同じ投稿と操作位置にフォーカスを戻す。
+    [...actions.querySelectorAll('button')].forEach((control, index) => {
+      control.dataset.focus = 'comment-' + comment.commentId + '-' + index;
+    });
     // 投稿本文を HTML として解析せず、textContent 経由で表示する。
     return el('article', { cls: 'discussion-comment' }, el('p', { cls: 'discussion-body', text: comment.body }),
-      el('p', { cls: 'muted', text: comment.likes + ' いいね' }), actions);
+      el('div', { cls: 'pills' },
+        el('span', { cls: 'pill moderation-' + comment.visibility, text: labels[comment.visibility] }),
+        ...(comment.presented ? [el('span', { cls: 'pill pill-stage', text: '紹介済み' })] : []),
+        el('span', { cls: 'muted comment-like-count', text: 'いいね ' + comment.likes + '件' })),
+      actions);
   });
   container.replaceChildren(tabs, ...rows,
-    ...(rows.length ? [] : [el('p', { cls: 'muted', text: labels[commentFilter] + 'のコメントはありません。' })]));
+    ...(rows.length ? [] : [el('p', { cls: 'moderation-empty', text: labels[commentFilter] + 'のコメントはありません。' })]));
+  if (focused) {
+    const target = [...container.querySelectorAll<HTMLButtonElement>('[data-focus]')].find(control => control.dataset.focus === focused)
+      ?? tabs.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
+    target?.focus({ preventScroll: true });
+  }
 }
 
 async function refreshComments() {
@@ -389,7 +457,9 @@ function renderExpiry() {
   const seconds = Math.max(0, Math.ceil((expiryDeadline - performance.now()) / 1000));
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor(seconds / 60) % 60;
-  expiryRemaining.textContent = 'あと ' + (hours ? hours + '時間' : '') + minutes + '分' + seconds % 60 + '秒';
+  const remaining = hours ? hours + '時間' + minutes + '分' : minutes + '分';
+  const label = seconds <= 5 * 60 ? remaining + seconds % 60 + '秒' : '約' + remaining;
+  if (expiryRemaining.textContent !== label) expiryRemaining.textContent = label;
   const warning = seconds === 0 ? '自動消去の予定時刻を過ぎました。セッションの更新を待っています。'
     : seconds <= 5 * 60 ? '自動消去まで5分以内です。必要なら有効期限を延長してください。'
       : seconds <= 30 * 60 ? '自動消去まで30分以内です。' : '';
@@ -449,7 +519,7 @@ async function reloadDeck(raw: string | null) {
   try {
     const data: unknown = JSON.parse(raw ?? 'null');
     if (!isRecord(data) || data.format !== 'fakeslido-deck' || data.version !== 1 || !Array.isArray(data.questions)) {
-      throw new Error('FakeSlido の質問集 JSON を選んでください。');
+      throw new Error('PochiPoll の質問集 JSON を選んでください。');
     }
     // 旧形式の入れ物を確認し、個々の質問は既存のサーバー検証に委ねる。
     if (items().length && !window.confirm('現在の質問集を置き換えますか？ 受付と公開状態は初期化されます。')) return;
@@ -543,13 +613,33 @@ editForm.addEventListener('submit', async event => {
   };
   const questions = items().map(item => item.questionId === id ? question : draft(item));
   if (!id) questions.push(question);
+  if (submitEdit.disabled) return;
+  const closeButtons = [$('cancel-edit', HTMLButtonElement), $('cancel-edit-footer', HTMLButtonElement)];
+  const fields = [...editForm.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>(
+    'input, select, textarea, fieldset button')].filter(field => !field.disabled);
   submitEdit.disabled = true;
-  await saveDeck(questions, { deckRevision, errorTarget: $('edit-error') });
-  submitEdit.disabled = false;
-  if (!editor.open) {
+  submitEdit.textContent = '保存中…';
+  editForm.setAttribute('aria-busy', 'true');
+  for (const control of [...closeButtons, ...fields]) control.disabled = true;
+  try {
+    await saveDeck(questions, { deckRevision, errorTarget: $('edit-error') });
+  } finally {
+    submitEdit.disabled = false;
+    submitEdit.textContent = '質問を保存';
+    editForm.removeAttribute('aria-busy');
+    for (const control of [...closeButtons, ...fields]) control.disabled = false;
+  }
+  if (editor.open) {
+    submitEdit.focus({ preventScroll: true });
+  } else {
     selectedId = question.questionId;
     render();
+    const selectedRow = $('questions').querySelector<HTMLButtonElement>('[aria-pressed="true"]');
+    selectedRow?.focus();
   }
+});
+editor.addEventListener('cancel', event => {
+  if (submitEdit.disabled) event.preventDefault();
 });
 questionType.addEventListener('change', () => updateStyles());
 $('add-option').addEventListener('click', () => { const input = addOption(); syncOptions(); input.focus(); });
@@ -677,6 +767,7 @@ openPresent.addEventListener('click', () => {
 poll('/api/admin/state', key, { interval: 0, onState: applyState, onConnection: updatePreflight, onInvalid: text => {
   storageSet(sessionStorage, 'fakeslido:admin', null);
   $('workspace').hidden = true;
+  $('overview').replaceChildren();
   copyLink.disabled = true;
   openPresent.disabled = true;
   eraseDialog.close();

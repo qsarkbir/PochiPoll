@@ -29,7 +29,7 @@ export function createDiscussionView(initial: DiscussionContext, code: string,
     'aria-describedby': 'discussion-privacy discussion-count' } });
   const count = el('span', { cls: 'muted', attrs: { id: 'discussion-count' } });
   const submit = el('button', { cls: 'primary', attrs: { type: 'submit' } });
-  const postNotice = el('p', { cls: 'notice', attrs: { role: 'status', hidden: '' } });
+  const postNotice = el('p', { cls: 'notice', attrs: { role: 'status', hidden: '', tabindex: '-1' } });
   const listNotice = el('p', { cls: 'notice', attrs: { role: 'status', hidden: '' } });
   const closed = el('p', { cls: 'muted', text: 'このお題の投稿といいねの受付は終了しました。' });
   const form = el('form', { cls: 'discussion-form' },
@@ -82,7 +82,7 @@ export function createDiscussionView(initial: DiscussionContext, code: string,
       // textContent で描画し、投稿本文を HTML やリンクに変換しない。
       return el('li', { cls: 'discussion-comment' },
         el('p', { cls: 'discussion-body', text: comment.body }),
-        el('div', { cls: 'actions' }, reaction, el('span', { cls: 'muted', text: comment.likes + '件' }),
+        el('div', { cls: 'actions' }, reaction, el('span', { cls: 'muted', text: 'いいね ' + comment.likes + '件' }),
           ...(comment.authoredByYou ? [el('span', { cls: 'muted', text: 'あなたの投稿' })] : [])));
     });
     list.replaceChildren(el('ol', { cls: 'discussion-list' }, ...items));
@@ -167,6 +167,7 @@ export function createDiscussionView(initial: DiscussionContext, code: string,
     if (submit.disabled || disposed) return;
     const input = attempt ?? { ...binding(), clientSubmissionId: crypto.randomUUID(), body: text.value };
     attempt = input;
+    const hadFocus = document.activeElement === submit;
     posting = true;
     updateForm();
     message('', postNotice);
@@ -194,13 +195,20 @@ export function createDiscussionView(initial: DiscussionContext, code: string,
       }
     } finally {
       posting = false;
-      if (!disposed) updateForm();
+      if (!disposed) {
+        updateForm();
+        if (hadFocus && document.activeElement === document.body && !postNotice.hidden) {
+          postNotice.focus({ preventScroll: true });
+        }
+      }
     }
   }
 
   async function like(comment: PublicComment) {
     if (disposed || liking || !context.topic.isOpen || comment.authoredByYou || performance.now() < likeReadyAt) return;
     const data: SetLikeInput = { ...binding(), commentId: comment.commentId, liked: !comment.likedByYou };
+    const hadFocus = document.activeElement instanceof HTMLButtonElement
+      && document.activeElement.dataset.comment === comment.commentId;
     liking = true;
     message('', listNotice);
     renderList();
@@ -220,7 +228,13 @@ export function createDiscussionView(initial: DiscussionContext, code: string,
       message(hint, listNotice);
     } finally {
       liking = false;
-      if (!disposed) renderList();
+      if (!disposed) {
+        renderList();
+        if (hadFocus && document.activeElement === document.body) {
+          [...list.querySelectorAll('button')].find(control => control.dataset.comment === comment.commentId && !control.disabled)
+            ?.focus({ preventScroll: true });
+        }
+      }
     }
   }
 

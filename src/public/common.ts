@@ -43,7 +43,7 @@ export function message(text: string, target = $('notice')) {
 
 export function connection(text: string, disconnected = false) {
   const target = $('connection');
-  target.textContent = text;
+  if (target.textContent !== text) target.textContent = text;
   target.classList.toggle('offline', disconnected);
 }
 

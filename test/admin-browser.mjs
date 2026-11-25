@@ -68,6 +68,7 @@ try {
   await page.locator('#option-fields input').nth(1).fill('B');
   await page.getByRole('button', { name: '質問を保存', exact: true }).click();
   await page.locator('#editor').waitFor({ state: 'hidden' });
+  await page.getByText('設定・管理', { exact: true }).click();
   await page.getByRole('button', { name: '↑ 上へ', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.question-row strong')?.textContent === '選択式の検証');
   const backup = await page.evaluate(() => JSON.parse(localStorage.getItem('fakeslido:deck')));

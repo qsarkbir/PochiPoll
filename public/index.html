@@ -3,21 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>投票に参加 | FakeSlido</title>
+  <title>投票に参加 | PochiPoll</title>
   <link rel="icon" href="/mark.svg">
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/participate.js"></script>
 </head>
 <body data-page="public">
   <header class="site-header"><div class="header-inner">
-    <div class="brand"><img src="/mark.svg" alt="" width="36" height="36"><span>FakeSlido</span></div>
+    <div class="brand"><img src="/mark.svg" alt="" width="28" height="28"><span>PochiPoll</span></div>
+    <h1 class="screen-label">投票に参加</h1>
     <span class="connection" id="connection" role="status">接続中</span>
   </div></header>
   <main class="participant-shell">
-    <section class="page-heading"><div><h1>投票に参加</h1><p>会議の質問に匿名で回答できます。</p></div></section>
     <p id="notice" class="notice" role="status" hidden></p>
     <nav id="question-nav" class="question-nav" aria-label="質問一覧" hidden></nav>
     <section id="ballot" class="panel ballot" aria-label="質問と回答"></section>
+    <p class="participant-privacy">匿名で参加できます</p>
   </main>
 </body>
 </html>

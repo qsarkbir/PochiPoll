@@ -78,7 +78,7 @@ let state: PublicState | null = null;
 let selectedId: string | undefined;
 let editing = false;
 let choices: number[] = [];
-let sending = false;
+let sendingQuestionId: string | undefined;
 let voteNotBefore = 0;
 let sessionInvalid = false;
 let results: PublicResults | null = null;
@@ -210,7 +210,7 @@ function selectQuestion(id: string) {
   const question = currentQuestion();
   editing = Boolean(retry && question && ownAnswer(question));
   choices = retry ? [...retry.attempt.selections] : [];
-  message(retry?.hint ?? '');
+  message('');
   results = null;
   resultRequest++;
   render();
@@ -222,14 +222,23 @@ function nav(state: PublicState) {
   const nav = $('question-nav');
   const questions = orderedQuestions(state);
   nav.hidden = !questions.length;
+  const focused = document.activeElement instanceof HTMLButtonElement && nav.contains(document.activeElement)
+    ? document.activeElement.dataset.question : undefined;
   nav.replaceChildren(...questions.map((question, index) => {
     const selected = selectedId === question.questionId;
     const label = question.type === 'discussion' ? 'お題 ' + (index + 1)
       : '質問 ' + (index + 1) + (ownAnswer(question) ? ' ✓' : '');
     const item = button(label, () => selectQuestion(question.questionId), 'compact');
+    item.dataset.question = question.questionId;
+    if (question.type !== 'discussion' && ownAnswer(question)) {
+      item.setAttribute('aria-label', '質問 ' + (index + 1) + '、回答済み');
+    }
     item.setAttribute('aria-current', selected ? 'true' : 'false');
     return item;
   }));
+  if (focused) {
+    [...nav.querySelectorAll('button')].find(item => item.dataset.question === focused)?.focus({ preventScroll: true });
+  }
 }
 
 function render() {
@@ -254,65 +263,90 @@ function render() {
     return;
   }
   const answer = ownAnswer(question);
+  const active = document.activeElement;
+  const focusKey = active instanceof HTMLElement && panel.dataset.question === question.questionId && panel.contains(active)
+    ? active.dataset.ballotFocus : undefined;
+  panel.dataset.question = question.questionId;
   const heading = el('div', { cls: 'ballot-heading' },
     el('div', { cls: 'pills' }, statusPill(question.isOpen),
       el('span', { cls: 'pill pill-muted', text: question.type === 'single' ? '単一選択' : '複数選択' })),
     el('h2', { text: question.text }));
   let content;
   if (answer && question.resultsPublished && !editing) {
-    content = el('div', {}, el('h3', { text: '投票結果' }),
-      results ? chart(results, question.style, question.type) : el('p', { cls: 'muted', text: '結果を読み込み中…' }),
-      receipt(question, answer));
+    content = el('div', {}, receipt(question, answer),
+      el('section', { cls: 'participant-results' }, el('h3', { text: '投票結果' }),
+        results ? chart(results, question.style, question.type) : el('p', { text: '結果を読み込み中…' })));
   } else if (answer && !editing || !question.isOpen) {
-    content = answer ? receipt(question, answer) : el('p', { cls: 'muted', text: 'この質問の投票受付は終了しました。' });
+    content = answer ? receipt(question, answer) : el('p', { attrs: { 'data-ballot-focus': 'status', tabindex: '-1' }, text: 'この質問の投票受付は終了しました。' });
   } else {
     content = ballotForm(question, answer);
   }
   panel.replaceChildren(heading, content);
+  if (focusKey) {
+    const targets = [...panel.querySelectorAll<HTMLElement>('[data-ballot-focus]:not(:disabled):not([hidden])')];
+    const preferred = targets.find(element => element.dataset.ballotFocus === focusKey);
+    const fallback = targets.find(element => element.dataset.ballotFocus === (sendingQuestionId === question.questionId || !question.isOpen ? 'status' : 'submit'))
+      ?? targets.find(element => element.dataset.ballotFocus === 'status');
+    (preferred ?? fallback)?.focus({ preventScroll: true });
+  }
 }
 
 function receipt(question: PublicQuestion, answer: SavedAnswer) {
   const optionList = el('ul', { cls: 'answer-list' },
     ...answer.choices.map(index => el('li', { text: question.options[index - 1] })));
+  const change = button('回答を変更', () => {
+    choices = [...answer.choices];
+    editing = true;
+    render();
+    $('ballot').querySelector<HTMLInputElement>('input:checked')?.focus({ preventScroll: true });
+  }, 'compact', sendingQuestionId !== undefined);
+  change.dataset.ballotFocus = 'change';
   return el('div', { cls: 'receipt' },
-    el('p', { cls: 'receipt-label', text: '✓ 回答済み' }), el('h3', { text: 'あなたの回答' }), optionList,
-    ...(question.isOpen ? [button('回答を変更', () => {
-      choices = [...answer.choices];
-      editing = true;
-      render();
-    }, 'compact', sending)] : []));
+    el('p', { cls: 'receipt-label', text: '✓ 回答済み', attrs: {
+      'data-ballot-focus': 'status', tabindex: '-1', role: 'status'
+    } }), el('h3', { text: 'あなたの回答' }), optionList,
+    ...(question.isOpen ? [change] : []));
 }
 
 function ballotForm(question: PublicQuestion, answer: SavedAnswer | null) {
   const multiple = question.type === 'multiple';
   const form = el('form', { cls: 'vote-form' });
   const normalLabel = answer ? '変更を保存' : '投票する';
+  const retry = retryVotes.get(question.questionId);
+  const sendingHere = sendingQuestionId === question.questionId;
   const submit = el('button', { cls: 'primary',
-    text: retryVotes.has(question.questionId) ? '同じ回答を再送信する' : normalLabel, attrs: { type: 'submit' } });
+    text: sendingHere ? '送信中…' : retry ? '同じ回答を再送信する' : normalLabel,
+    attrs: { type: 'submit', 'data-ballot-focus': 'submit' } });
+  const status = el('p', { cls: retry && !sendingHere ? 'vote-status vote-retry' : 'vote-status', attrs: {
+    'data-ballot-focus': 'status', tabindex: '-1', role: 'status', hidden: ''
+  } });
+  message(sendingHere ? '回答を送信しています。' : retry?.hint ?? '', status);
   submit.disabled = voteBlocked() || !choices.length;
   const fields = el('fieldset', {}, el('legend', { cls: 'muted', text: multiple ? '当てはまる選択肢を選んでください。' : '選択肢を1つ選んでください。' }));
   for (const [index, text] of question.options.entries()) {
     const value = index + 1;
-    const input = el('input', { attrs: { type: multiple ? 'checkbox' : 'radio', name: 'option', value } });
+    const input = el('input', { attrs: { type: multiple ? 'checkbox' : 'radio', name: 'option', value, 'data-ballot-focus': 'option-' + value } });
     input.checked = choices.includes(value);
-    input.disabled = sending;
+    input.disabled = sendingQuestionId !== undefined;
     input.addEventListener('change', () => {
       choices = multiple
         ? [...form.querySelectorAll('input')].filter(element => element.checked).map(element => Number(element.value))
         : [value];
-      if (retryVotes.delete(question.questionId)) message('');
+      if (retryVotes.delete(question.questionId)) message('', status);
       submit.textContent = normalLabel;
       submit.disabled = voteBlocked() || !choices.length;
     });
     fields.append(el('label', { cls: 'ballot-option' }, input, el('span', { text })));
   }
-  form.append(fields, el('div', { cls: 'actions' }, submit,
+  if (editing) form.append(el('p', { cls: 'editing-label', text: '回答を変更中' }));
+  form.append(fields, el('div', { cls: 'actions' }, status, submit,
     ...(editing ? [button('キャンセル', () => {
-      if (retryVotes.delete(question.questionId)) message('');
+      retryVotes.delete(question.questionId);
       editing = false;
       choices = [];
       render();
-    }, '', sending)] : [])));
+      $('ballot').querySelector<HTMLButtonElement>('.receipt button')?.focus({ preventScroll: true });
+    }, '', sendingQuestionId !== undefined)] : [])));
   form.addEventListener('submit', event => {
     event.preventDefault();
     const retry = retryVotes.get(question.questionId);
@@ -323,7 +357,7 @@ function ballotForm(question: PublicQuestion, answer: SavedAnswer | null) {
 }
 
 function voteBlocked() {
-  return sending || performance.now() < voteNotBefore;
+  return sendingQuestionId !== undefined || performance.now() < voteNotBefore;
 }
 
 function startVote(question: PublicQuestion) {
@@ -397,7 +431,6 @@ async function handleVoteFailure(error: unknown, attempt: VoteAttempt) {
     choices = [...attempt.selections];
     const question = currentQuestion();
     editing = Boolean(question && ownAnswer(question));
-    message(hint);
   }
 }
 
@@ -410,7 +443,7 @@ async function sendVote(attempt: VoteAttempt) {
     render();
     return;
   }
-  sending = true;
+  sendingQuestionId = questionId;
   message('');
   render();
   try {
@@ -435,7 +468,7 @@ async function sendVote(attempt: VoteAttempt) {
   } catch (error) {
     await handleVoteFailure(error, attempt);
   } finally {
-    sending = false;
+    sendingQuestionId = undefined;
     render();
   }
 }

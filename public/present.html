@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>発表画面 | FakeSlido</title>
+  <title>発表画面 | PochiPoll</title>
   <link rel="icon" href="/mark.svg">
   <link rel="stylesheet" href="/styles.css">
   <script src="/vendor/qrcode.js" defer></script>
@@ -11,13 +11,14 @@
 </head>
 <body data-page="present">
   <header class="site-header"><div class="header-inner">
-    <div class="brand"><img src="/mark.svg" alt="" width="36" height="36"><span>FakeSlido</span></div>
+    <div class="brand"><img src="/mark.svg" alt="" width="28" height="28"><span>PochiPoll</span></div>
+    <span class="screen-label">発表画面</span>
     <span class="connection" id="connection" role="status">接続中</span>
   </div></header>
   <main class="present-shell">
     <p id="notice" class="notice" role="status" hidden></p>
     <div id="stage" class="stage" hidden>
-      <section class="panel stage-main" id="stage-main" aria-label="発表内容"></section>
+      <section class="stage-main" id="stage-main" aria-label="発表内容"></section>
       <aside class="panel join-panel">
         <h2>投票に参加</h2>
         <div id="qr"></div>
