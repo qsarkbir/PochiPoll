@@ -207,8 +207,10 @@ test('複数選択を集計し、CSVとJSONに集計値だけを書き出す', a
   assert.equal((await vote(token, 'two', [1, 2], revision, voter)).status, 200);
   assert.equal((await vote(token, 'two', [1, 3], revision)).status, 200);
 
-  const { body: data, raw } = await call('/api/admin/export?format=json');
-  assert.equal(data.format, 'fakeslido-results');
+  const { body: data, raw, headers } = await call('/api/admin/export?format=json');
+  assert.equal(headers.get('content-disposition'), 'attachment; filename="pochipoll-results.json"');
+  assert.equal(data.format, 'pochipoll-results');
+  assert.equal(data.version, 1);
   assert.equal(data.sessionId, created.sessionId);
   assert.equal(data.questions[0].respondentCount, 0);
   assert.equal(data.questions[0].options[0].percentage, 0);
@@ -220,6 +222,7 @@ test('複数選択を集計し、CSVとJSONに集計値だけを書き出す', a
   assert.ok(!raw.toString().includes(voter));
 
   const csv = await call('/api/admin/export?format=csv');
+  assert.equal(csv.headers.get('content-disposition'), 'attachment; filename="pochipoll-results.csv"');
   assert.equal(csv.raw.subarray(0, 3).toString('hex'), 'efbbbf');
   assert.match(csv.raw.toString(), /"'=SUM\(1,2\)"/);
   assert.match(csv.raw.toString(), /"'  \+りんご"/);
@@ -516,6 +519,24 @@ test('静的ファイルを固定リストから提供し、QRコードの版と
   assert.deepEqual(qr.raw, source);
   assert.equal(createHash('sha256').update(qr.raw).digest('hex'),
     '79ec86f82856005b1c887905cfccfcfbec3821ca61c7fd5a952faa5f778f791c');
+});
+
+test('同梱の質問集は通常起動で読み込める', async () => {
+  const { call, deck } = await fixture();
+  const sample = await call('/pochipoll-sample-deck.json', { token: null });
+  assert.equal(sample.status, 200);
+  assert.equal(sample.headers.get('content-type'), 'application/json; charset=utf-8');
+  assert.equal(sample.body.format, 'pochipoll-deck');
+  assert.equal(sample.body.version, 1);
+  assert.deepEqual(new Set(sample.body.questions.map(question => question.type)), new Set(['single', 'multiple']));
+  assert.deepEqual(new Set(sample.body.questions.map(question => question.style)),
+    new Set(['horizontal', 'vertical', 'donut', 'stacked']));
+
+  const loaded = await deck(sample.body.questions, { replace: true });
+  assert.equal(loaded.status, 200);
+  assert.deepEqual(loaded.body.questions.map(question => question.questionId),
+    sample.body.questions.map(question => question.questionId));
+  assert.ok(loaded.body.questions.every(question => !question.everOpened && !question.resultsPublished));
 });
 
 test('HTTPS公開モードでは公開オリジンと短期の接続元別制限を使う', async () => {
@@ -1037,7 +1058,7 @@ test('コメント書き出しは公開済みだけを独立した形式に保�
   for (const text of [pending, hidden, deleted, 'author', 'submission', 'voterToken', 'likedByYou', '検証専用-export-hidden']) {
     assert.equal(JSON.stringify(result.body).includes(text), false);
   }
-  assert.equal((await call('/api/admin/export?format=json')).body.format, 'fakeslido-results');
+  assert.equal((await call('/api/admin/export?format=json')).body.format, 'pochipoll-results');
   for (const token of [snapshot.participantCode, snapshot.presentationToken, null]) assert.equal((await exported({ token })).status, 401);
   assert.equal((await call('/api/admin/export-comments')).status, 400);
   assert.equal((await call('/api/admin/export-comments?sessionId=stale')).status, 409);

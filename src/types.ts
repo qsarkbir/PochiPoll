@@ -243,7 +243,7 @@ export interface VoteReceipt {
 }
 
 export interface ResultsExport {
-  format: 'fakeslido-results';
+  format: 'pochipoll-results';
   version: 1;
   sessionId: string;
   exportedAt: string;
