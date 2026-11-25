@@ -19,7 +19,10 @@
     </div>
   </header>
   <main class="admin-shell">
-    <p id="notice" class="notice" role="status" hidden></p>
+    <div class="notice dismissible-notice">
+      <p id="notice" role="status" hidden></p>
+      <button id="notice-dismiss" type="button" class="icon quiet" aria-label="通知を閉じる">×</button>
+    </div>
     <div class="session-toolbar">
       <section id="overview" class="overview" aria-label="セッション概要"></section>
       <div class="actions session-actions">
@@ -52,7 +55,6 @@
             <div class="actions">
               <label class="button compact">質問集を読み込む<input id="import" type="file" accept=".json,application/json" class="visually-hidden"></label>
               <button id="deck-download" class="compact">質問集 JSON</button>
-              <a class="button compact" href="/pochipoll-sample-deck.json" download>質問集サンプルを保存</a>
               <button id="restore" class="compact" hidden>ブラウザの控えを復元</button>
               <button id="clear-backup" class="quiet compact" hidden>ブラウザの控えを削除</button>
             </div>

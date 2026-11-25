@@ -65,7 +65,6 @@ button, .button {
   overflow-wrap: anywhere;
   cursor: pointer;
 }
-a.button { text-decoration: none; }
 button:hover:not(:disabled), .button:hover { border-color: var(--accent-line); background: var(--accent-tint); }
 button.primary { color: var(--paper); background: var(--accent); border-color: var(--accent); }
 button.primary:hover:not(:disabled) { background: var(--accent-dark); border-color: var(--accent-dark); }
@@ -98,6 +97,11 @@ button[aria-pressed="true"]:not(.question-row) { border-color: var(--accent-line
   background: var(--accent-tint);
   color: var(--accent-dark);
 }
+
+.dismissible-notice { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); }
+.dismissible-notice:has(#notice[hidden]) { display: none; }
+.dismissible-notice p { padding-block: var(--space-1); color: inherit; }
+.dismissible-notice button { flex: none; color: inherit; }
 
 .site-header { background: var(--paper); border-bottom: 1px solid var(--line); }
 .header-inner {

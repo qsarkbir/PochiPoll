@@ -86,16 +86,29 @@ try {
     await locator.click();
     return started;
   };
-  const sample = await downloadFrom(page.getByRole('link', { name: '質問集サンプルを保存' }));
-  assert.equal(sample.suggestedFilename(), 'pochipoll-sample-deck.json');
+  const sample = await page.request.get(origin + '/pochipoll-sample-deck.json');
+  assert.equal(sample.ok(), true);
   page.once('dialog', dialog => dialog.accept());
-  await page.locator('#import').setInputFiles(await sample.path());
+  await page.locator('#import').setInputFiles({
+    name: 'pochipoll-sample-deck.json', mimeType: 'application/json', buffer: await sample.body()
+  });
   await page.waitForFunction(() => document.querySelectorAll('.question-row').length === 4);
+  const notice = page.locator('.dismissible-notice');
+  const dismissNotice = page.getByRole('button', { name: '通知を閉じる', exact: true });
+  await notice.getByText('質問集を読み込みました。', { exact: true }).waitFor();
+  const banner = await notice.boundingBox();
+  const close = await dismissNotice.boundingBox();
+  assert.ok(close.x > banner.x + banner.width / 2);
+  assert.ok(close.y < banner.y + banner.height / 2);
+  const toolbarBefore = await page.locator('.session-toolbar').boundingBox();
+  await dismissNotice.click();
+  await notice.waitFor({ state: 'hidden' });
+  assert.ok((await page.locator('.session-toolbar').boundingBox()).y < toolbarBefore.y);
 
   const questions = await downloadFrom(page.locator('#deck-download'));
   assert.equal(questions.suggestedFilename(), 'pochipoll-deck.json');
   assert.deepEqual(JSON.parse(await readFile(await questions.path(), 'utf8')),
-    JSON.parse(await readFile(await sample.path(), 'utf8')));
+    await sample.json());
 
   for (const format of ['json', 'csv']) {
     const results = await downloadFrom(page.locator('#' + format + '-download'));
@@ -111,8 +124,12 @@ try {
   });
   await page.waitForFunction(() => document.querySelectorAll('.question-row').length === 2);
   assert.equal((await api('/api/admin/state')).discussions[0].text, 'ブラウザ検証のお題');
+  await notice.getByText('質問集を読み込みました。', { exact: true }).waitFor();
+  await dismissNotice.press('Enter');
+  await notice.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('#copy-link').evaluate(control => document.activeElement === control), true);
   assert.deepEqual(errors, []);
-  console.log('PASS: お題作成・審査・非公開・再公開・削除確認・受付停止・設定編集・混在並べ替え・再読込・プレーンテキスト表示・新旧質問集の読み込み・書き出しファイル名');
+  console.log('PASS: お題作成・審査・非公開・再公開・削除確認・受付停止・設定編集・混在並べ替え・再読込・プレーンテキスト表示・新旧質問集の読み込み・通知の閉じ方・書き出しファイル名');
 } finally {
   await browser?.close();
   server.closeAllConnections();
