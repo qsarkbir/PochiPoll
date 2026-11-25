@@ -21,7 +21,7 @@ try {
   const initial = await api('/api/admin/state');
   const state = await api('/api/admin/deck', { deckRevision: initial.deckRevision, questions: [
     { questionId: 'browser-topic', text: '次回のテーマを教えてください', type: 'discussion' },
-    { questionId: 'browser-choice', text: '選択式の確認', type: 'single', options: ['A', 'B'], style: 'horizontal' }
+    { questionId: 'browser-choice', text: '選択式の確認', type: 'multiple', options: ['A', 'B'], style: 'horizontal' }
   ] }, adminKey, 'PUT');
   await api('/api/admin/control', { action: 'open', questionId: 'browser-topic' });
   browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -135,8 +135,58 @@ try {
   await admin.getByRole('button', { name: '次へ', exact: true }).click();
   await present.getByRole('heading', { name: '選択式の確認', exact: true }).waitFor();
   assert.equal(await present.locator('.stage-options li').count(), 2);
+  await reader.getByRole('button', { name: '質問 2', exact: true }).click();
+  const checkbox = reader.getByRole('checkbox', { name: 'A' });
+  const vote = reader.getByRole('button', { name: '投票する', exact: true });
+  assert.equal(await vote.isDisabled(), true);
+  await checkbox.check();
+  await vote.click();
+  await present.waitForFunction(() => document.querySelector('.stage-main .chart-summary')?.textContent === '1 人が回答');
+  await api('/api/admin/control', { action: 'publish', questionId: 'browser-choice' });
+  const result = reader.getByRole('heading', { name: '投票結果', exact: true });
+  await result.waitFor();
+  const change = reader.getByRole('button', { name: '回答を変更', exact: true });
+  await change.click();
+  const save = reader.getByRole('button', { name: '変更を保存', exact: true });
+  await checkbox.uncheck();
+  assert.equal(await save.isEnabled(), true);
+  await reader.getByRole('button', { name: 'キャンセル', exact: true }).click();
+  await change.click();
+  assert.equal(await checkbox.isChecked(), true);
+  await checkbox.uncheck();
+
+  // サーバーが取り消しを受理しても、応答を受け取れなければ控えを削除しない。
+  let withdrawal;
+  await reader.route('**/api/public/vote', async route => {
+    withdrawal = route.request().postDataJSON();
+    assert.deepEqual(withdrawal.choices, []);
+    assert.equal((await route.fetch()).status(), 200);
+    await route.abort();
+  }, { times: 1 });
+  await save.click();
+  const retry = reader.getByRole('button', { name: '回答の取り消しを再送信する', exact: true });
+  await retry.waitFor();
+  await present.waitForFunction(() => document.querySelector('.stage-main .chart-summary')?.textContent === '0 人が回答');
+  const savedAnswer = () => reader.evaluate(() => JSON.parse(localStorage.getItem('fakeslido:participant')).answers['browser-choice']);
+  assert.deepEqual((await savedAnswer()).choices, [1]);
+
+  const resend = reader.waitForRequest('**/api/public/vote');
+  await retry.click();
+  assert.deepEqual((await resend).postDataJSON(), withdrawal);
+  await reader.getByText('回答を取り消しました。', { exact: true }).waitFor();
+  assert.equal(await change.count(), 0);
+  assert.equal(await result.count(), 0);
+  assert.equal(await checkbox.isChecked(), false);
+  assert.equal(await vote.isDisabled(), true);
+  assert.equal(await savedAnswer(), undefined);
+  await reader.reload();
+  await vote.waitFor();
+  assert.equal(await change.count(), 0);
+  await checkbox.check();
+  await vote.click();
+  await change.waitFor();
   assert.deepEqual(errors, []);
-  console.log('PASS: 参加投稿→審査・いいね→一覧／注目→紹介済み／解除→順番固定→非公開／削除→JSON、250ms演出・動きの低減・通信復帰・選択式への進行');
+  console.log('PASS: 参加投稿→審査・いいね→一覧／注目→紹介済み／解除→順番固定→非公開／削除→JSON、250ms演出・動きの低減・通信復帰・選択式への進行・複数選択の取り消しと再送');
 } finally {
   await browser?.close();
   server.closeAllConnections();

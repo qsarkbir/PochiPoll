@@ -54,7 +54,7 @@ function readRecord(): ParticipantRecord | null {
           if (!isRecord(answer)) continue;
           const { voteRevision, choices } = answer;
           if (typeof voteRevision === 'number' && Number.isSafeInteger(voteRevision)
-            && Array.isArray(choices) && choices.every((choice: unknown): choice is number =>
+            && Array.isArray(choices) && choices.length > 0 && choices.every((choice: unknown): choice is number =>
               typeof choice === 'number' && Number.isSafeInteger(choice) && choice > 0)) {
             answers[id] = { voteRevision, choices };
           }
@@ -286,7 +286,8 @@ function render() {
     const targets = [...panel.querySelectorAll<HTMLElement>('[data-ballot-focus]:not(:disabled):not([hidden])')];
     const preferred = targets.find(element => element.dataset.ballotFocus === focusKey);
     const fallback = targets.find(element => element.dataset.ballotFocus === (sendingQuestionId === question.questionId || !question.isOpen ? 'status' : 'submit'))
-      ?? targets.find(element => element.dataset.ballotFocus === 'status');
+      ?? targets.find(element => element.dataset.ballotFocus === 'status')
+      ?? targets.find(element => element.dataset.ballotFocus === 'option-1');
     (preferred ?? fallback)?.focus({ preventScroll: true });
   }
 }
@@ -314,14 +315,15 @@ function ballotForm(question: PublicQuestion, answer: SavedAnswer | null) {
   const normalLabel = answer ? '変更を保存' : '投票する';
   const retry = retryVotes.get(question.questionId);
   const sendingHere = sendingQuestionId === question.questionId;
+  const retryLabel = retry?.attempt.selections.length === 0 ? '回答の取り消しを再送信する' : '同じ回答を再送信する';
   const submit = el('button', { cls: 'primary',
-    text: sendingHere ? '送信中…' : retry ? '同じ回答を再送信する' : normalLabel,
+    text: sendingHere ? '送信中…' : retry ? retryLabel : normalLabel,
     attrs: { type: 'submit', 'data-ballot-focus': 'submit' } });
   const status = el('p', { cls: retry && !sendingHere ? 'vote-status vote-retry' : 'vote-status', attrs: {
     'data-ballot-focus': 'status', tabindex: '-1', role: 'status', hidden: ''
   } });
   message(sendingHere ? '回答を送信しています。' : retry?.hint ?? '', status);
-  submit.disabled = voteBlocked() || !choices.length;
+  submit.disabled = !canSubmitVote(question);
   const fields = el('fieldset', {}, el('legend', { cls: 'muted', text: multiple ? '当てはまる選択肢を選んでください。' : '選択肢を1つ選んでください。' }));
   for (const [index, text] of question.options.entries()) {
     const value = index + 1;
@@ -334,12 +336,16 @@ function ballotForm(question: PublicQuestion, answer: SavedAnswer | null) {
         : [value];
       if (retryVotes.delete(question.questionId)) message('', status);
       submit.textContent = normalLabel;
-      submit.disabled = voteBlocked() || !choices.length;
+      submit.disabled = !canSubmitVote(question);
     });
     fields.append(el('label', { cls: 'ballot-option' }, input, el('span', { text })));
   }
   if (editing) form.append(el('p', { cls: 'editing-label', text: '回答を変更中' }));
-  form.append(fields, el('div', { cls: 'actions' }, status, submit,
+  form.append(fields);
+  if (editing && multiple) {
+    form.append(el('p', { text: 'すべての選択を外して保存すると、未回答に戻ります。' }));
+  }
+  form.append(el('div', { cls: 'actions' }, status, submit,
     ...(editing ? [button('キャンセル', () => {
       retryVotes.delete(question.questionId);
       editing = false;
@@ -360,9 +366,14 @@ function voteBlocked() {
   return sendingQuestionId !== undefined || performance.now() < voteNotBefore;
 }
 
+function canSubmitVote(question: PublicQuestion) {
+  return !voteBlocked() && (choices.length > 0 || retryVotes.has(question.questionId)
+    || (question.type === 'multiple' && editing && ownAnswer(question) !== null));
+}
+
 function startVote(question: PublicQuestion) {
   const current = currentQuestion();
-  if (!state || voteBlocked() || !choices.length || !current?.isOpen
+  if (!state || !current?.isOpen || !canSubmitVote(current)
     || current.questionId !== question.questionId || current.voteRevision !== question.voteRevision) return;
   const selections = [...choices];
   void sendVote({
@@ -405,6 +416,7 @@ async function handleVoteFailure(error: unknown, attempt: VoteAttempt) {
     return;
   }
 
+  const subject = attempt.selections.length === 0 ? '回答の取り消し' : '投票';
   let hint: string;
   if (error instanceof RequestError && error.status === 429) {
     const seconds = error.retryAfter || 3;
@@ -414,8 +426,8 @@ async function handleVoteFailure(error: unknown, attempt: VoteAttempt) {
   } else if (!(error instanceof RequestError) || error.status === 408 || error.status >= 500) {
     const timeout = (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name))
       || (error instanceof RequestError && (error.status === 408 || error.status === 504));
-    hint = timeout ? '投票の送信がタイムアウトしました。同じ回答を再送信できます。'
-      : '通信エラーで投票の送信結果を確認できませんでした。同じ回答を再送信できます。';
+    hint = timeout ? subject + 'の送信がタイムアウトしました。再送信できます。'
+      : '通信エラーで' + subject + 'の送信結果を確認できませんでした。再送信できます。';
   } else {
     retryVotes.delete(questionId);
     showHint(error.message);
@@ -456,7 +468,15 @@ async function sendVote(attempt: VoteAttempt) {
       && state.questions.find(item => item.questionId === questionId)?.voteRevision === voteRevision) {
       const latest = ensureRecord(attempt.sessionId);
       if (latest.voterToken === voterToken) {
-        latest.answers[questionId] = { voteRevision, choices: attempt.selections };
+        if (attempt.selections.length) {
+          latest.answers[questionId] = { voteRevision, choices: attempt.selections };
+        } else {
+          delete latest.answers[questionId];
+          if (selectedId === questionId) {
+            results = null;
+            message('回答を取り消しました。');
+          }
+        }
         persist(latest);
       }
     }
@@ -481,7 +501,8 @@ async function updateResults() {
     const data = await request(`/api/public/results?questionId=${encodeURIComponent(question.questionId)}`, code);
     const current = currentQuestion();
     if (index !== resultRequest || state?.sessionId !== data.sessionId || !current?.resultsPublished
-      || current.questionId !== data.question.questionId || current.voteRevision !== data.question.voteRevision) return;
+      || current.questionId !== data.question.questionId || current.voteRevision !== data.question.voteRevision
+      || !ownAnswer(current)) return;
     results = data;
     render();
   } catch (error) {
@@ -500,6 +521,11 @@ window.addEventListener('storage', event => {
   if (latest?.code !== code || latest.sessionId !== state.sessionId || latest.voterToken !== record?.voterToken) return;
   record = latest;
   pruneAnswers(latest, state);
+  const question = currentQuestion();
+  if (question && !ownAnswer(question)) {
+    results = null;
+    if (!retryVotes.has(question.questionId)) editing = false;
+  }
   render();
   updateResults().catch(() => {});
 });

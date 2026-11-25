@@ -82,6 +82,7 @@ test('公開状態、受付状態、発表モードが独立し、未オープ�
   const voter = newKey();
   const revision = opened.questions[0].voteRevision;
   assert.equal((await vote(token, 'one', [1], revision, voter)).status, 400);
+  assert.equal((await vote(token, 'one', [], revision, voter)).status, 400);
   assert.equal((await vote(token, 'one', 1, revision, voter)).status, 200);
   assert.equal((await vote(token, 'one', 2, revision, voter)).status, 200);
   assert.deepEqual((await publicState()).body, opened);
@@ -202,7 +203,6 @@ test('複数選択を集計し、CSVとJSONに集計値だけを書き出す', a
   const voter = newKey();
   assert.equal((await vote(token, 'two', [1, 1], revision)).status, 400);
   assert.equal((await vote(token, 'two', [1, 4], revision)).status, 400);
-  assert.equal((await vote(token, 'two', [], revision)).status, 400);
   assert.equal((await vote(token, 'two', [2, 1], revision, voter)).status, 200);
   assert.equal((await vote(token, 'two', [1, 2], revision, voter)).status, 200);
   assert.equal((await vote(token, 'two', [1, 3], revision)).status, 200);
@@ -227,6 +227,50 @@ test('複数選択を集計し、CSVとJSONに集計値だけを書き出す', a
   assert.match(csv.raw.toString(), /"'=SUM\(1,2\)"/);
   assert.match(csv.raw.toString(), /"'  \+りんご"/);
   assert.match(csv.raw.toString(), /"ぶどう""",1,2,4,50\.0/);
+});
+
+test('複数選択の空配列は本人の回答を取り消し、再送は集計を変更しない', async () => {
+  const { call, control, deck, state, vote } = await fixture();
+  const { body: created } = await deck([second]);
+  const { participantCode, presentationToken, sessionId } = created;
+  const { voteRevision } = created.questions[0];
+  await control('open', 'two');
+  await control('publish', 'two');
+  const voter = newKey();
+  const send = choices => vote(participantCode, 'two', choices, voteRevision, voter);
+  const before = await state();
+  assert.equal((await send([])).status, 200);
+  assert.equal((await call('/api/admin/state?revision=' + before.revision)).status, 204);
+
+  assert.equal((await send([1, 2])).status, 200);
+  assert.equal((await vote(participantCode, 'two', [2, 3], voteRevision)).status, 200);
+  const present = suffix => call('/api/present/state' + suffix, { token: presentationToken });
+  const { body: shown } = await present('');
+  const { body: published } = await call('/api/public/state', { token: participantCode });
+  assert.equal(shown.question.respondentCount, 2);
+  const withdrawn = await send([]);
+  assert.equal(withdrawn.status, 200);
+  assert.deepEqual(withdrawn.body, { sessionId, voteRevision });
+  const updated = await present('?revision=' + shown.revision);
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.mode, 'question');
+  assert.equal(updated.body.question.respondentCount, 1);
+  assert.equal((await call('/api/public/state?revision=' + published.revision, { token: participantCode })).status, 200);
+
+  const results = await call('/api/public/results?questionId=two', { token: participantCode });
+  assert.equal(results.body.respondentCount, 1);
+  assert.equal(results.body.totalSelections, 2);
+  assert.deepEqual(results.body.options.map(option => [option.optionVotes, option.percentage]),
+    [[0, 0], [1, 100], [1, 100]]);
+  const after = await state();
+  assert.equal((await send([])).status, 200);
+  assert.equal((await call('/api/admin/state?revision=' + after.revision)).status, 204);
+  assert.equal((await send([3])).status, 200);
+  assert.equal((await state()).questions[0].results.respondentCount, 2);
+
+  await control('close', 'two');
+  assert.equal((await send([])).status, 409);
+  assert.equal((await state()).questions[0].results.respondentCount, 2);
 });
 
 test('編集、並べ替え、復元、リセットで票世代を正しく扱う', async () => {
