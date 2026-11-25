@@ -758,6 +758,12 @@ eraseConfirm.addEventListener('click', () => withEraseTarget('erase', async sess
   eraseDialog.close();
   applyState(next);
 }));
+$('notice-dismiss').addEventListener('click', event => {
+  if (document.activeElement === event.currentTarget) {
+    (copyLink.disabled ? $('preflight') : copyLink).focus({ preventScroll: true });
+  }
+  message('');
+});
 if (!canShareParticipantUrl) copyLink.textContent = 'この端末用の参加URLをコピー';
 copyLink.addEventListener('click', () => run(async () => {
   await navigator.clipboard.writeText(participantUrl(currentState().participantCode));
