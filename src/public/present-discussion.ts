@@ -35,9 +35,13 @@ export function discussionStage(container: HTMLElement) {
       identity = nextIdentity;
     }
     if (!heading || !list) return;
-    heading.replaceChildren(el('div', { cls: 'pills' }, statusPill(topic.isOpen),
-      el('span', { cls: 'pill pill-muted', text: focused ? '注目コメント' : 'コメント一覧' })),
-    el('h1', { text: topic.text }));
+    const headingState = JSON.stringify([topic.isOpen, Boolean(focused), topic.text]);
+    if (heading.dataset.state !== headingState) {
+      heading.replaceChildren(el('div', { cls: 'pills' }, statusPill(topic.isOpen),
+        el('span', { cls: 'pill pill-muted', text: focused ? '注目コメント' : 'コメント一覧' })),
+      el('h1', { text: topic.text }));
+      heading.dataset.state = headingState;
+    }
     const shown = focused ? [focused] : topic.comments.filter(comment => !hidePresented || !comment.presented);
     const selected = new Set(shown.map(comment => comment.commentId));
     const published = new Map(topic.comments.map(comment => [comment.commentId, comment]));
@@ -71,15 +75,25 @@ export function discussionStage(container: HTMLElement) {
         }).catch(() => {});
       } else card.remove();
     }
+    let next = list.firstElementChild;
     for (const comment of shown) {
       let card = cards.get(comment.commentId);
+      const meta = comment.likes + ' いいね' + (comment.presented ? ' · 紹介済み' : '');
       if (!card) {
-        card = el('article', { cls: 'stage-comment', attrs: { 'data-comment-id': comment.commentId } });
+        card = el('article', { cls: 'stage-comment', attrs: { 'data-comment-id': comment.commentId } },
+          el('p', { cls: 'discussion-body', text: comment.body }),
+          el('p', { cls: 'stage-comment-meta', text: meta }));
         cards.set(comment.commentId, card);
+      } else {
+        const body = card.firstElementChild!;
+        const count = card.lastElementChild!;
+        if (body.textContent !== comment.body) body.textContent = comment.body;
+        if (count.textContent !== meta) count.textContent = meta;
       }
-      card.replaceChildren(el('p', { cls: 'discussion-body', text: comment.body }),
-        el('p', { cls: 'stage-comment-meta', text: comment.likes + ' いいね' + (comment.presented ? ' · 紹介済み' : '') }));
-      list.append(card);
+      // 件数だけが変わったカードは同じ DOM と位置を使う。
+      while (next instanceof HTMLElement && leaving.has(next)) next = next.nextElementSibling;
+      if (next === card) next = next.nextElementSibling;
+      else list.insertBefore(card, next);
     }
     move(positions);
     if (!shown.length && !leaving.size) list.replaceChildren(emptyState('表示するコメントはありません', '公開されたコメントがここに表示されます。'));

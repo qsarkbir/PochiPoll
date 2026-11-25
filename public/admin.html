@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>運営コンソール | FakeSlido</title>
+  <title>運営コンソール | PochiPoll</title>
   <link rel="icon" href="/mark.svg">
   <link rel="stylesheet" href="/styles.css">
   <script src="/vendor/qrcode.js" defer></script>
@@ -12,34 +12,31 @@
 <body data-page="admin">
   <header class="site-header">
     <div class="header-inner">
-      <div class="brand"><img src="/mark.svg" alt="" width="36" height="36"><span>FakeSlido</span></div>
-      <span class="header-divider"></span><span class="screen-label">運営コンソール</span>
+      <div class="brand"><img src="/mark.svg" alt="" width="28" height="28"><span>PochiPoll</span></div>
+      <h1 class="screen-label">運営コンソール</h1>
       <span class="connection" id="connection" role="status">接続中</span>
+      <button id="open-present" disabled>発表画面を開く <span aria-hidden="true">↗</span></button>
     </div>
   </header>
   <main class="admin-shell">
-    <section class="page-heading">
-      <div><h1>セッション運営</h1><p>質問の準備から、投票受付、結果の公開まで。</p></div>
-      <div class="actions">
-        <button id="preflight">本番前チェック</button>
-        <button id="copy-link" disabled>参加URLをコピー</button>
-        <button id="open-present" class="primary" disabled>発表画面を開く ↗</button>
-      </div>
-    </section>
     <p id="notice" class="notice" role="status" hidden></p>
+    <div class="session-toolbar">
+      <section id="overview" class="overview" aria-label="セッション概要"></section>
+      <div class="actions session-actions">
+        <button id="copy-link" class="compact" disabled>参加URLをコピー</button>
+        <button id="preflight" class="compact">本番前チェック</button>
+      </div>
+    </div>
     <div id="workspace" hidden>
-      <section id="session-expiry" class="panel session-expiry" aria-labelledby="expiry-title">
+      <section id="session-expiry" class="session-expiry" aria-labelledby="expiry-title">
         <div class="session-expiry-header">
-          <div>
-            <h2 id="expiry-title">自動消去までの残り時間</h2>
-            <p id="expiry-remaining"></p>
-          </div>
-          <button type="button" id="extend-expiry">有効期限を延長</button>
+          <h2 id="expiry-title">自動消去まで</h2>
+          <p id="expiry-remaining"></p>
+          <button type="button" id="extend-expiry" class="quiet compact" aria-describedby="expiry-help" title="残り時間は推定値です。期限を延長してもプロセスの停止や通信の切断は防げません。">有効期限を延長</button>
+          <span id="expiry-help" class="visually-hidden">残り時間は推定値です。プロセスの停止や通信の切断は期限の延長で防げません。</span>
         </div>
         <p id="expiry-warning" class="expiry-warning" role="status" hidden></p>
-        <p class="muted">残り時間はサーバーから取得した推定値です。延長してもプロセスの停止や通信の切断は防げません。</p>
       </section>
-      <section id="overview" class="overview" aria-label="セッション概要"></section>
       <div class="workspace">
         <section class="panel question-list">
           <header class="panel-heading"><h2>質問一覧</h2><button id="add" class="primary compact">＋ 質問を追加</button></header>
@@ -47,34 +44,42 @@
         </section>
         <section class="panel detail" id="detail" aria-label="選択中の質問"></section>
       </div>
-      <section id="files" class="panel tools-panel">
-        <div><h2>データ管理</h2><p>質問集の再利用と集計結果の書き出し</p></div>
-        <div class="actions">
-          <label class="button compact">質問集を読み込む<input id="import" type="file" accept=".json,application/json" class="visually-hidden"></label>
-          <button id="restore" class="compact" hidden>ブラウザの控えを復元</button>
-          <button id="clear-backup" class="compact" hidden>ブラウザの控えを削除</button>
-          <button id="deck-download" class="compact">質問集 JSON</button>
-          <button id="csv-download" class="compact">集計 CSV</button>
-          <button id="json-download" class="compact">集計 JSON</button>
-          <button id="comments-download" class="compact" hidden>コメント JSON</button>
-          <button id="erase" class="danger-link compact">全データ消去</button>
+      <section id="files" class="panel tools-panel" aria-labelledby="files-title">
+        <h2 id="files-title">データ管理</h2>
+        <div class="file-groups">
+          <section>
+            <h3>質問集</h3>
+            <div class="actions">
+              <label class="button compact">質問集を読み込む<input id="import" type="file" accept=".json,application/json" class="visually-hidden"></label>
+              <button id="deck-download" class="compact">質問集 JSON</button>
+              <button id="restore" class="compact" hidden>ブラウザの控えを復元</button>
+              <button id="clear-backup" class="quiet compact" hidden>ブラウザの控えを削除</button>
+            </div>
+          </section>
+          <section>
+            <h3>結果の書き出し</h3>
+            <div class="actions">
+              <button id="csv-download" class="compact">集計 CSV</button>
+              <button id="json-download" class="compact">集計 JSON</button>
+              <button id="comments-download" class="compact" hidden>公開コメント JSON</button>
+            </div>
+          </section>
         </div>
+        <div class="data-removal"><button id="erase" class="danger-link compact">全データ消去</button></div>
       </section>
     </div>
   </main>
-  <dialog id="editor">
+  <dialog id="editor" aria-labelledby="editor-title">
     <form id="edit-form">
       <header class="dialog-heading"><h2 id="editor-title">質問を追加</h2><button type="button" id="cancel-edit" class="icon" aria-label="閉じる">×</button></header>
-      <label class="field">質問文<textarea id="question-text" required rows="2" placeholder="例）次回のテーマは何がよいですか？"></textarea></label>
-      <div class="field-grid">
-        <label class="field">回答形式<select id="question-type"><option value="single">単一選択</option><option value="multiple">複数選択</option><option id="discussion-option" value="discussion" hidden disabled>コメント</option></select></label>
-        <label class="field" id="graph-field">グラフ<select id="question-style"></select></label>
-      </div>
+      <label class="field">質問文<textarea id="question-text" required autofocus rows="2" placeholder="例）次回のテーマは何がよいですか？"></textarea></label>
+      <label class="field">回答形式<select id="question-type"><option value="single">単一選択</option><option value="multiple">複数選択</option><option id="discussion-option" value="discussion" hidden disabled>コメント</option></select></label>
       <fieldset id="choice-settings"><legend>選択肢</legend><div id="option-fields"></div><button type="button" id="add-option" class="compact">＋ 選択肢を追加</button></fieldset>
+      <label class="field" id="graph-field">グラフ<select id="question-style"></select></label>
       <div id="discussion-settings" hidden>
         <label class="field">審査方式<select id="moderation-mode"><option value="manual">事前審査（推奨）</option><option value="instant">即時公開</option></select></label>
         <label class="field">ブラウザのトークンごとの投稿上限<select id="post-limit"><option value="1">1件</option><option value="3" selected>3件</option><option value="unlimited">制限なし</option></select></label>
-        <p class="muted">審査方式は変更後の新しい投稿に適用します。既存のコメントの公開状態は変わりません。即時公開では未審査の本文が参加者に表示されます。</p>
+        <p class="muted">審査方式は新しい投稿に適用されます。即時公開では投稿と同時に本文が公開されます。</p>
       </div>
       <p id="edit-error" class="notice" hidden role="alert"></p>
       <footer class="actions dialog-actions"><button type="button" id="cancel-edit-footer">キャンセル</button><button type="submit" class="primary">質問を保存</button></footer>
@@ -126,7 +131,7 @@
         <ol>
           <li>本番用と区別できるテスト質問を追加し、「受付を開始して発表」を押します。</li>
           <li>「発表画面を開く」で表示を確認します。HTTPS で公開したら、スマートフォンなどで QR を読み取るか参加URLを開き、テスト投票します。</li>
-          <li>確認後はテスト質問の「票をリセット」または「質問を削除」を行い、本番用の質問を発表対象にします。</li>
+          <li>確認後はテスト質問の「設定・管理」から「票をリセット」または「質問を削除」を行い、本番用の質問を発表対象にします。</li>
         </ol>
       </section>
       <footer class="actions dialog-actions">
