@@ -31,7 +31,8 @@ const assets = {
   '/preflight.js': 'text/javascript; charset=utf-8',
   '/qr.js': 'text/javascript; charset=utf-8',
   '/vendor/qrcode.js': 'text/javascript; charset=utf-8',
-  '/mark.svg': 'image/svg+xml'
+  '/mark.svg': 'image/svg+xml',
+  '/pochipoll-sample-deck.json': 'application/json; charset=utf-8'
 };
 const digest = (value: string) => createHash('sha256').update(value).digest();
 
@@ -310,7 +311,7 @@ export function createApp({ adminKey, baseUrl, transport = 'local', idleMs = 43_
           const data = session.exportResults();
           response.writeHead(200, {
             'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
-            'Content-Disposition': 'attachment; filename="fakeslido-results.' + format + '"'
+            'Content-Disposition': 'attachment; filename="' + data.format + '.' + format + '"'
           });
           response.end(format === 'csv' ? csvExport(data) : JSON.stringify(data, null, 2));
           break;
@@ -375,7 +376,7 @@ function start() {
   const server = createApp({ adminKey, baseUrl, transport, idleMs: idleMinutes * 60_000, voteLimit });
   server.listen(port, '127.0.0.1', () => {
     const origin = baseUrl ? new URL(baseUrl).origin : 'http://127.0.0.1:' + port;
-    console.log('FakeSlido 起動中');
+    console.log('PochiPoll 起動中');
     console.log('運営画面 ' + origin + '/admin' + (keyWasConfigured ? '' : '#' + adminKey));
     adminKey = undefined;
   });

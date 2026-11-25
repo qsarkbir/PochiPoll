@@ -65,6 +65,7 @@ button, .button {
   overflow-wrap: anywhere;
   cursor: pointer;
 }
+a.button { text-decoration: none; }
 button:hover:not(:disabled), .button:hover { border-color: var(--accent-line); background: var(--accent-tint); }
 button.primary { color: var(--paper); background: var(--accent); border-color: var(--accent); }
 button.primary:hover:not(:disabled) { background: var(--accent-dark); border-color: var(--accent-dark); }

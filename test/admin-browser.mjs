@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { readFile } from 'node:fs/promises';
 import { createApp } from '../dist/server.js';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -79,8 +80,39 @@ try {
   await page.reload();
   await page.locator('#workspace').waitFor({ state: 'visible' });
   assert.equal(await page.locator('.question-row').count(), 2);
+  assert.equal(backup.format, 'fakeslido-deck');
+  const downloadFrom = async locator => {
+    const started = page.waitForEvent('download');
+    await locator.click();
+    return started;
+  };
+  const sample = await downloadFrom(page.getByRole('link', { name: '質問集サンプルを保存' }));
+  assert.equal(sample.suggestedFilename(), 'pochipoll-sample-deck.json');
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#import').setInputFiles(await sample.path());
+  await page.waitForFunction(() => document.querySelectorAll('.question-row').length === 4);
+
+  const questions = await downloadFrom(page.locator('#deck-download'));
+  assert.equal(questions.suggestedFilename(), 'pochipoll-deck.json');
+  assert.deepEqual(JSON.parse(await readFile(await questions.path(), 'utf8')),
+    JSON.parse(await readFile(await sample.path(), 'utf8')));
+
+  for (const format of ['json', 'csv']) {
+    const results = await downloadFrom(page.locator('#' + format + '-download'));
+    assert.equal(results.suggestedFilename(), 'pochipoll-results.' + format);
+    if (format === 'json') {
+      assert.equal(JSON.parse(await readFile(await results.path(), 'utf8')).format, 'pochipoll-results');
+    }
+  }
+
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#import').setInputFiles({
+    name: 'fakeslido-deck.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup))
+  });
+  await page.waitForFunction(() => document.querySelectorAll('.question-row').length === 2);
+  assert.equal((await api('/api/admin/state')).discussions[0].text, 'ブラウザ検証のお題');
   assert.deepEqual(errors, []);
-  console.log('PASS: お題作成・審査・非公開・再公開・削除確認・受付停止・設定編集・混在並べ替え・再読込・プレーンテキスト表示');
+  console.log('PASS: お題作成・審査・非公開・再公開・削除確認・受付停止・設定編集・混在並べ替え・再読込・プレーンテキスト表示・新旧質問集の読み込み・書き出しファイル名');
 } finally {
   await browser?.close();
   server.closeAllConnections();

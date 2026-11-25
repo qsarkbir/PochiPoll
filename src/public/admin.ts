@@ -12,6 +12,8 @@ import type { AdminComments, AdminDiscussion, AdminState, CommentControlInput, C
 
 const key = tabCredential('admin');
 const backupKey = 'fakeslido:deck';
+const deckFormat = 'pochipoll-deck';
+const legacyDeckFormat = 'fakeslido-deck';
 let state: AdminState | undefined;
 let previousSessionId: string | undefined;
 let selectedId: string | undefined;
@@ -50,8 +52,8 @@ function items() {
   return orderedItems(currentState());
 }
 
-function deckData() {
-  return { format: 'fakeslido-deck', version: 1, questions: items().map(draft) };
+function deckData(format: typeof deckFormat | typeof legacyDeckFormat = deckFormat) {
+  return { format, version: 1, questions: items().map(draft) };
 }
 
 function currentState(): AdminState {
@@ -73,7 +75,8 @@ function applyState(next: AdminState) {
     selectedId = items()[0]?.questionId;
   }
   if (!sameSession) commentSnapshot = undefined;
-  if (newDeck && items().length) storageSet(localStorage, backupKey, JSON.stringify(deckData()));
+  // 旧版を使うブラウザでも質問集の控えを復元できる形式で保存する。
+  if (newDeck && items().length) storageSet(localStorage, backupKey, JSON.stringify(deckData(legacyDeckFormat)));
   else if (newDeck && sameSession) storageSet(localStorage, backupKey, null);
   $('workspace').hidden = false;
   copyLink.disabled = false;
@@ -518,10 +521,11 @@ function moveQuestion(index: number, offset: number) {
 async function reloadDeck(raw: string | null) {
   try {
     const data: unknown = JSON.parse(raw ?? 'null');
-    if (!isRecord(data) || data.format !== 'fakeslido-deck' || data.version !== 1 || !Array.isArray(data.questions)) {
+    if (!isRecord(data) || (data.format !== deckFormat && data.format !== legacyDeckFormat)
+        || data.version !== 1 || !Array.isArray(data.questions)) {
       throw new Error('PochiPoll の質問集 JSON を選んでください。');
     }
-    // 旧形式の入れ物を確認し、個々の質問は既存のサーバー検証に委ねる。
+    // ファイル全体の形式をここで確認し、個々の質問はサーバーで検証する。
     if (items().length && !window.confirm('現在の質問集を置き換えますか？ 受付と公開状態は初期化されます。')) return;
     await saveDeck(data.questions, { replace: true });
   } catch (error) {
@@ -663,7 +667,7 @@ importInput.addEventListener('change', async () => {
   catch { message('質問集を読み込めませんでした。'); }
 });
 $('deck-download').addEventListener('click', () => {
-  downloadFile('fakeslido-deck.json', new Blob([JSON.stringify(deckData(), null, 2)], { type: 'application/json' }));
+  downloadFile(deckFormat + '.json', new Blob([JSON.stringify(deckData(), null, 2)], { type: 'application/json' }));
 });
 
 function updateEraseDialog(next: AdminState) {
@@ -691,7 +695,7 @@ async function saveResults(format: ExportFormat, sessionId?: string) {
     : `/api/admin/export?format=${format}&sessionId=${encodeURIComponent(sessionId)}` as const;
   const blob = await request(path, key, { download: true });
   if (sessionId === undefined || (eraseDialog.open && state?.sessionId === sessionId)) {
-    downloadFile('fakeslido-results.' + format, blob);
+    downloadFile('pochipoll-results.' + format, blob);
   }
 }
 

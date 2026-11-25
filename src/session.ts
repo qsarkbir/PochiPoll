@@ -615,7 +615,7 @@ export class PollSession {
     this.touch();
     this.#notify('admin');
     return {
-      format: 'fakeslido-results',
+      format: 'pochipoll-results',
       version: 1,
       sessionId: this.sessionId,
       exportedAt: new Date().toISOString(),
