@@ -268,7 +268,7 @@ export class PollSession {
       throw new ApiError(409, '質問が更新されました。もう一度選択してください。', 'vote_changed');
     }
     const choices = question.type === 'single' ? [input.choices] : input.choices;
-    requireValue(isUnknownArray(choices) && choices.length >= 1 && choices.length <= question.options.length
+    requireValue(isUnknownArray(choices) && choices.length <= question.options.length
       && new Set(choices).size === choices.length
       && choices.every((choice): choice is number => typeof choice === 'number'
         && Number.isInteger(choice) && choice >= 1 && choice <= question.options.length),
@@ -276,16 +276,20 @@ export class PollSession {
     const pseudonym = createHmac('sha256', this.#sessionKey)
       .update(voterToken).update(question.questionId).digest('base64url');
     const oldChoices = question.votes.get(pseudonym);
+    // 複数選択の空配列は回答の削除。すでに未回答なら、再送でも集計は変わらない。
+    const withdrawal = choices.length === 0;
+    if (withdrawal && !oldChoices) return voteRevision;
     if (!oldChoices && question.votes.size >= 5000) throw new ApiError(409, '回答者数の上限に達しました。', 'vote_full');
     choices.sort((a, b) => a - b);
     if (oldChoices?.length === choices.length && oldChoices.every((choice, index) => choice === choices[index])) {
       return voteRevision;
     }
-    question.votes.set(pseudonym, choices);
+    if (withdrawal) question.votes.delete(pseudonym);
+    else question.votes.set(pseudonym, choices);
     const roles: Role[] = ['admin'];
     if (question.resultsPublished) roles.push('public');
     if (this.presentation.questionId === question.questionId
-      && (!oldChoices || this.presentation.mode === 'results')) roles.push('present');
+      && (!oldChoices || withdrawal || this.presentation.mode === 'results')) roles.push('present');
     this.#notify(...roles);
     return voteRevision;
   }

@@ -177,7 +177,7 @@ export interface Presentation {
 export interface VoteInput {
   questionId: string;
   voterToken: string;
-  choices: number | number[];
+  choices: number | number[]; // 複数選択の空配列は保存済み回答の取り消し。
   voteRevision: number;
 }
 
