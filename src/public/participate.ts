@@ -126,7 +126,7 @@ function currentQuestion() {
 function orderedQuestions(state: PublicState) {
   const questions: (PublicQuestion | PublicDiscussion)[] = [...state.questions];
   // お題の位置は公開済みの質問とお題を合わせた順番。順に差し込んで一つの一覧にする。
-  for (const topic of state.discussions ?? []) questions.splice(topic.questionOrder - 1, 0, topic);
+  for (const topic of state.discussions) questions.splice(topic.questionOrder - 1, 0, topic);
   return questions;
 }
 
@@ -177,7 +177,7 @@ async function applyState(next: PublicState) {
   const previous = currentQuestion();
   state = next;
   for (const [id, view] of discussionViews) {
-    if (!sameSession || !next.discussions?.some(topic => topic.questionId === id)) {
+    if (!sameSession || !next.discussions.some(topic => topic.questionId === id)) {
       view.dispose();
       discussionViews.delete(id);
     }
@@ -245,7 +245,7 @@ function render() {
   if (!state) return;
   nav(state);
   const panel = $('ballot');
-  const topic = state.discussions?.find(item => item.questionId === selectedId);
+  const topic = state.discussions.find(item => item.questionId === selectedId);
   if (topic && record) {
     const context = { topic, sessionId: state.sessionId, voterToken: record.voterToken };
     let view = discussionViews.get(topic.questionId);

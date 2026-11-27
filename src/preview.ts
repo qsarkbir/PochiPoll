@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { createApp } from './server.js';
 
-// 受入用の起動だけで機能を有効にする。通常起動の既定値や公開設定を変更しない。
+// 運用中のセッションとは別に、ローカルで操作を試せるようにする。
 function startPreview() {
   if (process.env.BASE_URL || process.env.TRANSPORT && process.env.TRANSPORT !== 'local') {
     throw new Error('コメント試用はローカル専用です。BASE_URL と TRANSPORT の公開設定を解除してください。');
@@ -14,7 +14,7 @@ function startPreview() {
   const configured = process.env.ADMIN_KEY !== undefined;
   let adminKey: string | undefined = process.env.ADMIN_KEY ?? randomBytes(32).toString('base64url');
   delete process.env.ADMIN_KEY;
-  const server = createApp({ adminKey, transport: 'local', discussionEnabled: true });
+  const server = createApp({ adminKey, transport: 'local' });
   server.listen(port, '127.0.0.1', () => {
     const address = server.address();
     if (!address || typeof address === 'string') return;
