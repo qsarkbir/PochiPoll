@@ -26,8 +26,8 @@ function isUnknownArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }
 
-function validateQuestion(input: unknown, discussionEnabled: boolean): QuestionDefinition | DiscussionDefinition {
-  if (discussionEnabled && input !== null && typeof input === 'object' && 'type' in input && input.type === 'discussion') {
+function validateQuestion(input: unknown): QuestionDefinition | DiscussionDefinition {
+  if (input !== null && typeof input === 'object' && 'type' in input && input.type === 'discussion') {
     return validateDiscussion(input);
   }
   objectWith(input, ['questionId', 'text', 'type', 'options', 'style']);
@@ -93,7 +93,6 @@ export class PollSession {
   private deckRevision: number;
   private readonly idleMs: number;
   private readonly voteLimit: number;
-  private readonly discussionEnabled: boolean;
   private readonly rateTimer: ReturnType<typeof setInterval>;
   #voteRevision = 0;
   #discussionRevision = 0;
@@ -104,10 +103,9 @@ export class PollSession {
   #events = new EventEmitter();
   #waiters = 0;
 
-  constructor({ idleMs, voteLimit, discussionEnabled = false }: { idleMs: number; voteLimit: number; discussionEnabled?: boolean }) {
+  constructor({ idleMs, voteLimit }: { idleMs: number; voteLimit: number }) {
     this.idleMs = idleMs;
     this.voteLimit = voteLimit;
-    this.discussionEnabled = discussionEnabled;
     const initialRevision = randomInt(2 ** 40);
     this.revision = { admin: initialRevision, public: initialRevision, present: initialRevision };
     this.deckRevision = initialRevision;
@@ -197,8 +195,7 @@ export class PollSession {
       return {
         ...base,
         questions: opened.filter(q => q.type !== 'discussion').map(publicQuestion),
-        ...(this.discussionEnabled && { discussions: opened.flatMap((q, index) =>
-          q.type === 'discussion' ? [publicDiscussion(q, index)] : []) })
+        discussions: opened.flatMap((q, index) => q.type === 'discussion' ? [publicDiscussion(q, index)] : [])
       } satisfies PublicState;
     }
     if (role === 'present') {
@@ -234,10 +231,10 @@ export class PollSession {
       questions: questions.filter(q => q.type !== 'discussion').map(question => ({
         ...publicQuestion(question), everOpened: question.everOpened, results: aggregate(question)
       })),
-      ...(this.discussionEnabled && { discussions: questions.flatMap((q, index) => q.type === 'discussion'
+      discussions: questions.flatMap((q, index) => q.type === 'discussion'
         ? [{ ...publicDiscussion(q, index), everOpened: q.everOpened, settings: q.settings, commentCount: q.discussion.size,
           presentation: q.discussion.presentation }]
-        : []) })
+        : [])
     } satisfies AdminState;
   }
 
@@ -487,7 +484,7 @@ export class PollSession {
     if (input.deckRevision !== this.deckRevision) {
       throw new ApiError(409, '質問集が更新されました。最新の内容を確認してください。', 'deck_changed');
     }
-    const validated = input.questions.map(question => validateQuestion(question, this.discussionEnabled));
+    const validated = input.questions.map(validateQuestion);
     requireValue(new Set(validated.map(question => question.questionId)).size === validated.length, '質問IDが重複しています。');
     const incoming = new Map(validated.map(question => [question.questionId, question]));
     const affected = [...this.questions.values()].filter(question => {

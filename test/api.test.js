@@ -621,7 +621,7 @@ const instantTopic = { questionId: 'instant', text: '即時公開のお題', typ
   settings: { moderationMode: 'instant' } };
 
 async function discussionFixture(options) {
-  const app = await fixture({ discussionEnabled: true, ...options });
+  const app = await fixture(options);
   const { call } = app;
   const adminComments = id => call('/api/admin/comments?questionId=' + id);
   const comments = (token, id, voterToken) => call('/api/public/comments?questionId=' + id, {
@@ -638,21 +638,26 @@ async function discussionFixture(options) {
   return { ...app, adminComments, comments, requestData, post, like };
 }
 
-test('通常起動ではコメント API とコメント形式を使用できない', async () => {
-  const { call, deck, state } = await fixture();
-  const before = await state();
-  assert.equal(Object.hasOwn(before, 'discussions'), false);
-  assert.equal((await deck([manualTopic])).status, 400);
-  assert.equal((await call('/api/public/comments?questionId=manual', { token: before.participantCode })).status, 404);
-  assert.equal((await call('/api/public/comments', {
-    token: before.participantCode, method: 'POST', data: {}
-  })).status, 404);
-  assert.equal((await call('/api/admin/comments?questionId=manual')).status, 404);
-  assert.equal((await call('/api/admin/comments/control', { method: 'POST', data: {} })).status, 404);
-  assert.equal((await call('/api/admin/discussions/control', { method: 'POST', data: {} })).status, 404);
-  assert.equal((await call('/api/admin/export-comments?sessionId=' + before.sessionId)).status, 404);
-  assert.equal((await call('/api/public/likes', { token: before.participantCode, method: 'POST', data: {} })).status, 404);
-  assert.equal((await state()).deckRevision, before.deckRevision);
+test('HTTPS公開モードでもコメントを受け付け、事前審査を適用する', async () => {
+  const baseUrl = 'https://poll.example.test';
+  const { call } = await fixture({ baseUrl, transport: 'cloudflare' });
+  const headers = { Host: 'poll.example.test', Origin: baseUrl, 'CF-Connecting-IP': '192.0.2.1' };
+  const { body: initial } = await call('/api/admin/state', { headers });
+  assert.deepEqual(initial.discussions, []);
+  const saved = await call('/api/admin/deck', {
+    headers, method: 'PUT', data: { deckRevision: initial.deckRevision, questions: [first, manualTopic] }
+  });
+  assert.equal(saved.status, 200);
+  const opened = await call('/api/admin/control', { headers, method: 'POST', data: { action: 'open', questionId: 'manual' } });
+  assert.equal(opened.status, 200);
+  const { sessionId, participantCode: token, discussions: [topic] } = opened.body;
+  const posted = await call('/api/public/comments', { headers, token, method: 'POST', data: {
+    sessionId, questionId: topic.questionId, discussionRevision: topic.discussionRevision,
+    voterToken: newKey(), clientSubmissionId: 'public-comment', body: '公開経路設定の確認用コメント'
+  } });
+  assert.equal(posted.status, 200);
+  assert.equal(posted.body.visibility, 'pending');
+  assert.deepEqual((await call('/api/public/comments?questionId=manual', { headers, token })).body.comments, []);
 });
 
 test('コメントの権限を分離し、審査待ちと未受付のお題を公開しない', async () => {

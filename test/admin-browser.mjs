@@ -8,7 +8,7 @@ import { createApp } from '../dist/server.js';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const key = randomBytes(32).toString('base64url');
-const server = createApp({ adminKey: key, discussionEnabled: true, waitMs: 100 });
+const server = createApp({ adminKey: key, waitMs: 100 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = 'http://127.0.0.1:' + server.address().port;
 let browser;
@@ -128,8 +128,27 @@ try {
   await dismissNotice.press('Enter');
   await notice.waitFor({ state: 'hidden' });
   assert.equal(await page.locator('#copy-link').evaluate(control => document.activeElement === control), true);
+
+  const choiceRow = page.locator('.question-row').filter({ hasText: '選択式の検証' });
+  const topicRow = page.locator('.question-row').filter({ hasText: 'ブラウザ検証のお題' });
+  await choiceRow.click();
+  await page.getByRole('button', { name: '受付を開始して発表', exact: true }).click();
+  await page.getByRole('button', { name: '受付を終了', exact: true }).waitFor();
+  // ポーリングが進行を先に反映するように操作の応答を待たせる。
+  await page.route('**/api/admin/control', async route => {
+    const response = await route.fetch();
+    await topicRow.getByText('発表中', { exact: true }).waitFor();
+    await route.fulfill({ response });
+  }, { times: 1 });
+  const advance = page.getByRole('button', { name: '次へ', exact: true });
+  await advance.click();
+  await page.locator('#detail').getByRole('heading', { name: 'ブラウザ検証のお題', exact: true }).waitFor();
+  await page.locator('#admin-comments').getByRole('button', { name: '承認待ち (0)', exact: true }).waitFor();
+  assert.equal(await choiceRow.getAttribute('aria-pressed'), 'false');
+  assert.equal(await topicRow.getAttribute('aria-pressed'), 'true');
+  assert.equal(await advance.isDisabled(), true);
   assert.deepEqual(errors, []);
-  console.log('PASS: お題作成・審査・非公開・再公開・削除確認・受付停止・設定編集・混在並べ替え・再読込・プレーンテキスト表示・新旧質問集の読み込み・通知の閉じ方・書き出しファイル名');
+  console.log('PASS: お題作成・審査・公開範囲の変更・削除・受付停止・設定編集・質問集の並べ替えと読込・書き出し・通知・次のお題の選択');
 } finally {
   await browser?.close();
   server.closeAllConnections();

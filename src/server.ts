@@ -149,12 +149,10 @@ interface AppOptions {
   idleMs?: number;
   voteLimit?: number;
   waitMs?: number;
-  // 運営者の受入確認が終わるまではテスト用の起動からだけ有効化する。
-  discussionEnabled?: boolean;
 }
 
 export function createApp({ adminKey, baseUrl, transport = 'local', idleMs = 43_200_000,
-  voteLimit = 600, waitMs = 20_000, discussionEnabled = false }: AppOptions = {}) {
+  voteLimit = 600, waitMs = 20_000 }: AppOptions = {}) {
   if (typeof adminKey !== 'string' || !tokenPattern.test(adminKey)
     || Buffer.from(adminKey, 'base64url').toString('base64url') !== adminKey) {
     throw new Error('ADMIN_KEY は32バイトの乱数をBase64URLで符号化してください。');
@@ -187,7 +185,7 @@ export function createApp({ adminKey, baseUrl, transport = 'local', idleMs = 43_
       body: readFileSync(new URL('./public' + filename + '.html', import.meta.url))
     });
   }
-  const session = new PollSession({ idleMs, voteLimit, discussionEnabled });
+  const session = new PollSession({ idleMs, voteLimit });
 
   function clientAddress(request: IncomingMessage): string {
     const ip = request.socket.remoteAddress ?? 'unknown';
@@ -238,7 +236,7 @@ export function createApp({ adminKey, baseUrl, transport = 'local', idleMs = 43_
         response.end(request.method === 'HEAD' ? undefined : asset.body);
         return;
       }
-      const topicRoutes = discussionEnabled ? discussionRoutes.get(url.pathname) : undefined;
+      const topicRoutes = discussionRoutes.get(url.pathname);
       const route = topicRoutes?.find(([method]) => method === request.method) ?? topicRoutes?.[0] ?? routes.get(url.pathname);
       if (!route) throw new ApiError(404, 'ページが見つかりません。');
       const [method, role, operation] = route;

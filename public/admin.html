@@ -64,7 +64,7 @@
             <div class="actions">
               <button id="csv-download" class="compact">集計 CSV</button>
               <button id="json-download" class="compact">集計 JSON</button>
-              <button id="comments-download" class="compact" hidden>公開コメント JSON</button>
+              <button id="comments-download" class="compact">公開コメント JSON</button>
             </div>
           </section>
         </div>
@@ -76,7 +76,7 @@
     <form id="edit-form">
       <header class="dialog-heading"><h2 id="editor-title">質問を追加</h2><button type="button" id="cancel-edit" class="icon" aria-label="閉じる">×</button></header>
       <label class="field">質問文<textarea id="question-text" required autofocus rows="2" placeholder="例）次回のテーマは何がよいですか？"></textarea></label>
-      <label class="field">回答形式<select id="question-type"><option value="single">単一選択</option><option value="multiple">複数選択</option><option id="discussion-option" value="discussion" hidden disabled>コメント</option></select></label>
+      <label class="field">回答形式<select id="question-type"><option value="single">単一選択</option><option value="multiple">複数選択</option><option value="discussion">コメント</option></select></label>
       <fieldset id="choice-settings"><legend>選択肢</legend><div id="option-fields"></div><button type="button" id="add-option" class="compact">＋ 選択肢を追加</button></fieldset>
       <label class="field" id="graph-field">グラフ<select id="question-style"></select></label>
       <div id="discussion-settings" hidden>
@@ -103,7 +103,7 @@
         <div class="actions">
           <button type="button" id="erase-csv" class="compact">集計 CSV をダウンロード</button>
           <button type="button" id="erase-json" class="compact">集計 JSON をダウンロード</button>
-          <button type="button" id="erase-comments-download" class="compact" hidden>コメント JSON をダウンロード</button>
+          <button type="button" id="erase-comments-download" class="compact">コメント JSON をダウンロード</button>
         </div>
       </div>
       <p id="erase-session-changed" class="notice" role="status" hidden>セッションが切り替わりました。消去する場合は、この画面を閉じて開き直してください。</p>

@@ -61,31 +61,46 @@ function currentState(): AdminState {
   return state;
 }
 
-function applyState(next: AdminState) {
+function setSelection(id: string | undefined) {
+  selectedId = id;
+  commentSnapshot = undefined;
+  commentGeneration++;
+}
+
+function showQuestion(id: string) {
+  setSelection(id);
+  render();
+  void refreshComments();
+}
+
+function applyState(next: AdminState, selectedAfterAdvance?: string) {
   if (next.sessionId === previousSessionId) return;
   const sameSession = state && next.sessionId === state.sessionId;
-  if (state && sameSession && next.revision <= state.revision) return;
+  if (state && sameSession && next.revision <= state.revision) {
+    // ポーリングが先に同じ進行を反映しても、操作した画面の選択はここで更新する。
+    if (selectedAfterAdvance && items().some(question => question.questionId === selectedAfterAdvance)) {
+      showQuestion(selectedAfterAdvance);
+    }
+    return;
+  }
   if (state && !sameSession) previousSessionId = state.sessionId;
   const newDeck = next.deckRevision !== state?.deckRevision;
   state = next;
   // サーバー側の時刻差を、端末の時計変更の影響を受けない経過時間に換算する。
   expiryDeadline = performance.now() + (next.expiresAt - next.serverTime);
   renderExpiry();
-  if (!items().some(question => question.questionId === selectedId)) {
-    selectedId = items()[0]?.questionId;
-  }
-  if (!sameSession) commentSnapshot = undefined;
+  const questions = items();
+  const requestedId = selectedAfterAdvance ?? selectedId;
+  const nextId = questions.find(question => question.questionId === requestedId)?.questionId ?? questions[0]?.questionId;
+  if (!sameSession || nextId !== selectedId) setSelection(nextId);
   // 旧版を使うブラウザでも質問集の控えを復元できる形式で保存する。
-  if (newDeck && items().length) storageSet(localStorage, backupKey, JSON.stringify(deckData(legacyDeckFormat)));
+  if (newDeck && questions.length) storageSet(localStorage, backupKey, JSON.stringify(deckData(legacyDeckFormat)));
   else if (newDeck && sameSession) storageSet(localStorage, backupKey, null);
   $('workspace').hidden = false;
   copyLink.disabled = false;
   openPresent.disabled = false;
   updateBackupControls();
-  $('add', HTMLButtonElement).disabled = items().length >= 50;
-  $('discussion-option', HTMLOptionElement).disabled = state.discussions === undefined;
-  $('discussion-option').hidden = state.discussions === undefined;
-  $('comments-download').hidden = state.discussions === undefined;
+  $('add', HTMLButtonElement).disabled = questions.length >= 50;
   updateEraseDialog(next);
   updatePreflight();
   render();
@@ -114,13 +129,7 @@ function render() {
   const active = document.activeElement;
   const focused = active instanceof HTMLElement ? active.dataset.focus : undefined;
   $('questions').replaceChildren(...questions.map((question, index) => {
-    const row = button('', () => {
-      selectedId = question.questionId;
-      commentSnapshot = undefined;
-      commentGeneration++;
-      render();
-      void refreshComments();
-    }, 'question-row');
+    const row = button('', () => showQuestion(question.questionId), 'question-row');
     row.setAttribute('aria-pressed', String(selectedId === question.questionId));
     row.dataset.focus = 'question-' + question.questionId;
     row.append(el('span', { cls: 'question-index', text: String(index + 1).padStart(2, '0') }),
@@ -299,7 +308,7 @@ function renderComments(previousFocus?: string) {
   const active = document.activeElement;
   const focusKey = active instanceof HTMLElement && container.contains(active) ? active.dataset.focus : previousFocus;
   const focused = focusKey?.startsWith('comment-') || focusKey?.startsWith('moderation-') ? focusKey : undefined;
-  const topic = state.discussions?.find(item => item.questionId === selectedId);
+  const topic = state.discussions.find(item => item.questionId === selectedId);
   const snapshot = commentSnapshot;
   if (!topic || !snapshot || snapshot.sessionId !== state.sessionId || snapshot.questionId !== selectedId ||
       snapshot.discussionRevision !== topic.discussionRevision) {
@@ -385,7 +394,7 @@ function renderComments(previousFocus?: string) {
 }
 
 async function refreshComments() {
-  const topic = state?.discussions?.find(item => item.questionId === selectedId);
+  const topic = state?.discussions.find(item => item.questionId === selectedId);
   if (!state || !topic || commentsLoading || $('workspace').hidden) return;
   const sessionId = state.sessionId;
   const generation = commentGeneration;
@@ -407,6 +416,8 @@ async function refreshComments() {
     }
   } finally {
     commentsLoading = false;
+    // 選択が変わっていたら、次の定期更新を待たずに移動先のコメントを取得する。
+    if (state.sessionId !== sessionId || selectedId !== topic.questionId) void refreshComments();
   }
 }
 
@@ -449,9 +460,10 @@ async function run(operation: () => Promise<void>, errorTarget = $('notice')) {
 
 function control(data: ControlInput) {
   return run(async () => {
-    applyState(await request('/api/admin/control', key, {
-      method: 'POST', data
-    }));
+    const next = await request('/api/admin/control', key, { method: 'POST', data });
+    const selectedAfterAdvance = data.action === 'advance' && state?.sessionId === data.sessionId &&
+      selectedId === data.questionId ? next.presentation.questionId ?? undefined : undefined;
+    applyState(next, selectedAfterAdvance);
   });
 }
 
@@ -636,8 +648,7 @@ editForm.addEventListener('submit', async event => {
   if (editor.open) {
     submitEdit.focus({ preventScroll: true });
   } else {
-    selectedId = question.questionId;
-    render();
+    showQuestion(question.questionId);
     const selectedRow = $('questions').querySelector<HTMLButtonElement>('[aria-pressed="true"]');
     selectedRow?.focus();
   }
@@ -675,12 +686,12 @@ function updateEraseDialog(next: AdminState) {
   // 複数選択でも、選んだ選択肢の数ではなく質問ごとの回答者数を足す。
   const counts = next.questions.map(question => question.results.respondentCount);
   const total = counts.reduce((sum, count) => sum + count, 0);
+  const commentCount = next.discussions.reduce((sum, topic) => sum + topic.commentCount, 0);
   $('erase-questions').textContent = String(orderedItems(next).length);
-  $('erase-comments').textContent = String(next.discussions?.reduce((sum, topic) => sum + topic.commentCount, 0) ?? 0);
+  $('erase-comments').textContent = String(commentCount);
   $('erase-answered').textContent = String(counts.filter(count => count > 0).length);
   $('erase-responses').textContent = String(total);
-  $('erase-exports').hidden = total === 0 && !next.discussions?.some(topic => topic.commentCount > 0);
-  $('erase-comments-download').hidden = next.discussions === undefined;
+  $('erase-exports').hidden = total === 0 && commentCount === 0;
   $('erase-comments-download', HTMLButtonElement).disabled = eraseTarget !== next.sessionId || erasePending !== undefined;
   const changed = eraseTarget !== next.sessionId;
   $('erase-session-changed').hidden = !changed;

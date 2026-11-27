@@ -6,7 +6,7 @@ import { createApp } from '../dist/server.js';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const adminKey = randomBytes(32).toString('base64url');
-const server = createApp({ adminKey, discussionEnabled: true, waitMs: 100 });
+const server = createApp({ adminKey, waitMs: 100 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = 'http://127.0.0.1:' + server.address().port;
 let browser;
@@ -133,6 +133,7 @@ try {
   await present.waitForFunction(() => document.querySelectorAll('.stage-comment').length === 0);
   assert.equal((await present.locator('#stage-main').textContent()).includes(comments[1].body), false);
   await admin.getByRole('button', { name: '次へ', exact: true }).click();
+  await admin.locator('#detail').getByRole('heading', { name: '選択式の確認', exact: true }).waitFor();
   await present.getByRole('heading', { name: '選択式の確認', exact: true }).waitFor();
   assert.equal(await present.locator('.stage-options li').count(), 2);
   await reader.getByRole('button', { name: '質問 2', exact: true }).click();

@@ -5,7 +5,7 @@ import { createApp } from '../dist/server.js';
 
 const count = 200;
 const adminKey = randomBytes(32).toString('base64url');
-const server = createApp({ adminKey, discussionEnabled: true });
+const server = createApp({ adminKey });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = 'http://127.0.0.1:' + server.address().port;
 

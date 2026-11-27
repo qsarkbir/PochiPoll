@@ -203,7 +203,7 @@ interface StateBase {
 
 export interface PublicState extends StateBase {
   questions: PublicQuestion[];
-  discussions?: PublicDiscussion[];
+  discussions: PublicDiscussion[];
 }
 
 export interface PresentState extends StateBase {
@@ -221,7 +221,7 @@ export interface AdminState extends StateBase {
   presentationToken: string;
   presentation: Presentation;
   questions: (PublicQuestion & { everOpened: boolean; results: Tally })[];
-  discussions?: AdminDiscussion[];
+  discussions: AdminDiscussion[];
 }
 
 export interface PreflightStatus {

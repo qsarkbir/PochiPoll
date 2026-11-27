@@ -85,7 +85,7 @@ export function setupPreflight(key: string | null, getState: () => AdminState | 
     if (connection === 'reconnecting') items.push('運営画面は再接続中です。通信の回復を確認してください。');
     if (connection === 'connecting') items.push('運営画面の状態を取得しています。');
     if (state && connection !== 'invalid') {
-      const questions = [...state.questions, ...state.discussions ?? []];
+      const questions = [...state.questions, ...state.discussions];
       if (questions.length === 0) items.push('質問がありません。');
       const openCount = questions.filter(question => question.isOpen).length;
       if (openCount > 1) items.push(openCount + '問を受付中です。参加者に表示する質問を確認してください。');
