@@ -17,6 +17,7 @@ const legacyDeckFormat = 'fakeslido-deck';
 let state: AdminState | undefined;
 let previousSessionId: string | undefined;
 let selectedId: string | undefined;
+let selectionGeneration = 0;
 let editing: { id: string | undefined; deckRevision: number } | undefined;
 let busy = false;
 const editor = $('editor', HTMLDialogElement);
@@ -63,6 +64,7 @@ function currentState(): AdminState {
 
 function setSelection(id: string | undefined) {
   selectedId = id;
+  selectionGeneration++;
   commentSnapshot = undefined;
   commentGeneration++;
 }
@@ -460,9 +462,12 @@ async function run(operation: () => Promise<void>, errorTarget = $('notice')) {
 
 function control(data: ControlInput) {
   return run(async () => {
+    const generation = selectionGeneration;
     const next = await request('/api/admin/control', key, { method: 'POST', data });
+    // 応答待ちに別の質問を選び、元の質問に戻った操作も世代番号で検出する。
     const selectedAfterAdvance = data.action === 'advance' && state?.sessionId === data.sessionId &&
-      selectedId === data.questionId ? next.presentation.questionId ?? undefined : undefined;
+      selectedId === data.questionId && generation === selectionGeneration
+      ? next.presentation.questionId ?? undefined : undefined;
     applyState(next, selectedAfterAdvance);
   });
 }
